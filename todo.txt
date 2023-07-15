@@ -1,0 +1,45 @@
+
+TODO:
+
+- non-chain explosions
+
+- sound(music, hit, chain, score pick up)
+- visuals 
+- score dot better visuals and blinking 
+- chain circle tweek
+
+** Level 1:
+- finish goon spawner
+- change turret shoot
+- more enemies????
+
+** Level 2:
+- connected chain nodes
+- exploading node
+- firing node
+- node with 3 spining blades
+- enemies???
+
+** Level 3:
+- chainging system????
+- enemies????
+
+
+Assets:
+https://kenney.nl/assets/pixel-shmup
+https://kenney.nl/assets/simple-space
+https://kenney.nl/assets/particle-pack
+https://kenney.nl/assets/space-shooter-extension
+https://kenney.nl/assets/space-shooter-redux
+
+https://opengameart.org/content/space-ship-parts-art
+https://opengameart.org/content/space-shooter-art
+
+https://opengameart.org/content/space-ship-shooter-pixel-art-assets
+
+https://opengameart.org/content/some-invaders
+
+https://opengameart.org/content/galagian-space-shooter-3d-prerender-ships-backgruond-ui
+
+
+https://mattwalkden.itch.io/lunar-battle-pack

@@ -33,6 +33,68 @@ Vec4 BLACK_VEC4 = {0, 0, 0, 1};
 Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 
 
+struct Polygon {
+  Vec2* points;
+  s32 point_count;
+};
+
+Polygon polygon_create_explosion(s32 point_count, f32 jaggedness, f32 start_angle) {
+  Allocator *allocator = get_allocator();
+  
+  Polygon r = {};
+  r.points = allocator_alloc_array(allocator, Vec2, point_count);
+  r.point_count = point_count;
+  
+  f32 angle = start_angle;
+  f32 angle_step = (2*Pi32)/(f32)point_count;
+  Vec2* points = r.points;
+  Loop(i, point_count) {
+    f32 scale = 1.0f - random_f32()*jaggedness;
+    points[i] = vec2(angle)*scale;
+    angle += angle_step;
+  }
+  
+  return r;
+}
+
+void draw_triangle(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
+  DrawTriangle(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
+}
+
+void draw_polygon(Polygon polygon, Vec2 center, f32 scale, f32 rot, Vec4 color) {
+  Loop(i, polygon.point_count) {
+    s32 next_index = (i + 1)%polygon.point_count;
+
+    Vec2 p1 = center + polygon.points[i]*scale;    
+    Vec2 p2 = center + polygon.points[next_index]*scale;
+   
+    draw_triangle(p1, center, p2, color);
+  }
+}
+
+void draw_polygon(Polygon poly1, Polygon poly2, f32 lerp_t, Vec2 center, f32 scale, f32 rot, Vec4 color) {
+  if(poly1.point_count != poly2.point_count) {
+    draw_polygon(poly1, center, scale, rot, color);
+    return;
+  }
+  
+  Polygon* a = &poly1;
+  Polygon* b = &poly2;
+  
+  Loop(i, a->point_count) {
+    s32 j = (i + 1)%a->point_count;
+    
+    Vec2 v1 = vec2_rotate(vec2_lerp(a->points[i], b->points[i], lerp_t), rot);
+    Vec2 p1 = center + v1*scale;    
+    
+    Vec2 v2 = vec2_rotate(vec2_lerp(a->points[j], b->points[j], lerp_t), rot);
+    Vec2 p2 = center + v2*scale;
+    
+    draw_triangle(p1, center, p2, color);
+    
+  }
+}
+
 // Defs
 enum Entity_Type {
   Entity_Type_None,
@@ -42,6 +104,7 @@ enum Entity_Type {
 
   Entity_Type_Turret,
   Entity_Type_Goon,
+  Entity_Type_Goon_Leader,
   
   Entity_Type_Chain_Block,
   
@@ -141,7 +204,11 @@ struct Game_State {
   Score_Dot* score_dots;
   s32 score_dot_count;
   
+  Polygon explosion_polygons[4];
+  
   Texture2D chain_circle_texture;
+  Texture2D goon_texture;
+  Texture2D goon_leader_texture;
   
   Font font;
   
@@ -151,10 +218,10 @@ struct Game_State {
 };
 
 
-#define SMALL_CHAIN_CIRCLE 30.0f 
-#define BIG_CHAIN_CIRCLE   80.0f
+#define SMALL_CHAIN_CIRCLE 40.0f 
+#define BIG_CHAIN_CIRCLE   100.0f
 
-#define CHAIN_CIRCLE_EMERGE_TIME        0.025f
+#define CHAIN_CIRCLE_EMERGE_TIME        0.03f
 #define MAX_CHAIN_CIRCLE_LIFE_TIME      2.0f
 #define CHAIN_CIRCLE_LIFE_PROLONG_TIME  0.4f
 
@@ -165,10 +232,8 @@ struct Game_State {
 #define MAX_SCORE_DOTS    512
 
 
-global_var Allocator  global_allocator;
 global_var Game_State global_game_state;
 
-Allocator*  get_allocator(void)  { return &global_allocator; };
 Game_State* get_game_state(void) { return &global_game_state; }
 
 
@@ -449,13 +514,14 @@ void goon_update(Entity* entity) {
   }
 }
 
-#define GOON_LEADER_RADIUS 18.0f
-#define GOON_LEADER_COLOR  BLUE_VEC4
 
-#define GOON_RADIUS        14.0f
-#define GOON_COLOR         YELLOW_VEC4
+#define GOON_LEADER_COLOR  vec4(0xFF1B68E6)
+#define GOON_COLOR         vec4(0xFFE6DC1E)
+#define GOON_OUTLINE_COLOR BLACK_VEC4
 
-#define GOON_PADDING       10.0f
+#define GOON_LEADER_RADIUS 20.0f
+#define GOON_RADIUS        15.0f
+#define GOON_PADDING       8.0f
 #define GOON_MOVE_SPEED    75.0f
 
 void spawn_goon_formation(char* formation, s32 formation_width, s32 formation_height) {
@@ -526,7 +592,7 @@ void spawn_goon_formation(char* formation, s32 formation_width, s32 formation_he
   // Creating and positioning the goons.
   s32 hit_points = 2;
   
-  Entity* leader = entity_new(Entity_Type_Goon);
+  Entity* leader = entity_new(Entity_Type_Goon_Leader);
   
   leader->pos        = leader_pos;
   leader->dir        = vec2(dir_angle);
@@ -626,10 +692,19 @@ void game_init(void) {
   game_state->chain_circle_count = 0;
   
   game_state->score_dots = allocator_alloc_array(allocator, Score_Dot, MAX_SCORE_DOTS);
-
+  game_state->score_dot_count = 0;
+  
   game_state->chain_circle_texture = texture_asset_load("chain_circle.png");
   
+  game_state->goon_texture        = texture_asset_load("goon_ship.png");
+  game_state->goon_leader_texture = texture_asset_load("goon_leader_ship.png");
+  
   game_state->font = font_asset_load("karmina.ttf", 32);
+  
+  // explosion polygons
+  Loop(i, ArrayCount(game_state->explosion_polygons)) {
+    game_state->explosion_polygons[i] = polygon_create_explosion(24, 0.5f, 0.0f);
+  }
   
   // init some entities
   {
@@ -665,20 +740,6 @@ void game_update(void) {
   if(timer_step(&goon_timer, delta_time)) {
     spawn_goon_column();
     goon_timer = timer_start(1.0f + 2*random_f32());
-  }
-
-  // update entities
-  Loop(i, game_state->entity_count) {
-    Entity* entity = &game_state->entities[i];
-
-    if(entity->should_remove) continue;
-    
-    switch(entity->type) {
-      case Entity_Type_Player:     { player_update(entity); } break;
-      case Entity_Type_Projectile: { projectile_update(entity); } break;
-      case Entity_Type_Turret:     { turret_update(entity); } break;
-      case Entity_Type_Goon:       { goon_update(entity); } break;
-    }
   }
 
   // update chain circles
@@ -728,6 +789,24 @@ void game_update(void) {
     c->life_time += life_advance;
     if(c->life_time > MAX_CHAIN_CIRCLE_LIFE_TIME) c->should_remove = true;
   }
+
+  // update entities
+  Loop(i, game_state->entity_count) {
+    Entity* entity = &game_state->entities[i];
+
+    if(entity->should_remove) continue;
+    
+    switch(entity->type) {
+      case Entity_Type_Player:     { player_update(entity); } break;
+      case Entity_Type_Projectile: { projectile_update(entity); } break;
+      case Entity_Type_Turret:     { turret_update(entity); } break;
+      case Entity_Type_Goon: 
+      case Entity_Type_Goon_Leader: {
+       goon_update(entity); 
+      } break;
+    }
+  }
+
 
   // update score dots
   {
@@ -786,7 +865,7 @@ void game_render(void) {
   
   BeginDrawing();
   
-  ClearBackground(rl_color(0.15f, 0.15f, 0.15f, 1.0f));
+  ClearBackground(rl_color(0.2f, 0.2f, 0.2f, 1.0f));
   
   Loop(i, game_state->entity_count) {
     Entity* entity = &game_state->entities[i];
@@ -799,8 +878,32 @@ void game_render(void) {
         draw_quad        (pos - dim*0.5f, dim, vec4_fade_alpha(WHITE_VEC4, 0.45f));
         draw_quad_outline(pos - dim*0.5f, dim, thickness, WHITE_VEC4);
       }break;
-      case Entity_Type_Goon:
-      case Entity_Type_Turret:
+      case Entity_Type_Goon: 
+      case Entity_Type_Goon_Leader: {
+        Vec2 dim = vec2(1, 1)*entity->radius*2;
+        f32 thickness = 3.0f;
+        
+        f32 scale = 1.0f - thickness/entity->radius;
+        draw_quad(entity->pos - dim*0.5f, dim, entity->rotation, GOON_OUTLINE_COLOR);        
+        draw_quad(entity->pos - dim*0.5f*scale, dim*scale, entity->rotation, entity->color);
+        
+        b32 show_health = timer_is_active(entity->health_bar_display_timer);
+        if(show_health) {
+          Vec2 top_left = entity->pos - dim*0.5f;
+          
+          f32 hp_bar_h   = 7;
+          f32 hp_bar_pad = 4;
+          
+          f32 life = (f32)entity->hit_points/(f32)entity->initial_hit_points;
+          f32 hp_bar_w = dim.width*life;
+          
+          Vec2 hp_bar_dim = vec2(hp_bar_w, hp_bar_h);
+          Vec2 hp_bar_pos = top_left - vec2(0, hp_bar_h + hp_bar_pad);
+          
+          draw_quad(hp_bar_pos, hp_bar_dim, RED_VEC4);
+        }
+      }break;
+      case Entity_Type_Turret: 
       case Entity_Type_Projectile: {
         Vec2 dim = vec2(1, 1)*entity->radius*2;
         draw_quad(entity->pos - dim*0.5f, dim, entity->rotation, entity->color);
@@ -851,6 +954,35 @@ void game_render(void) {
     draw_quad(dot->pos - dot_dim*0.5f, dot_dim, color);  
   }
   
+  s32 ep_count = ArrayCount(game_state->explosion_polygons);
+  local_persist s32 ep_index = 0;
+  local_persist f32 flicker_time = 0.0f;
+  f32 flicker_end_time = 0.075f;
+  
+  local_persist f32 rot = 0.0f;
+  // rot += delta_time;
+  
+  flicker_time += delta_time;
+  if(flicker_time > flicker_end_time){
+    ep_index = (ep_index + 1)%ep_count;
+    flicker_time = 0;
+  }
+  
+  Polygon a = game_state->explosion_polygons[ep_index];
+  Polygon b = game_state->explosion_polygons[(ep_index + 1)%ep_count];
+  f32 lerp_t = flicker_time/flicker_end_time;
+  
+  Vec4 inner_color  = vec4(0xFFFA971D);
+  Vec4 outter_color = vec4(0xFFFBCF12);
+  Vec2 mp = vec2(GetMouseX(), GetMouseY());
+  
+  draw_polygon(a, b, lerp_t, mp, 52, rot, BLACK_VEC4);
+  draw_polygon(a, b, lerp_t, mp, 50, rot, outter_color);
+  draw_polygon(a, b, lerp_t, mp, 40,  rot, inner_color);
+  
+  
+  draw_polygon(a, b, lerp_t, mp + vec2(100, 0), 50, 0.5f, outter_color);
+  draw_polygon(a, b, lerp_t, mp + vec2(100, 0), 40, 0.5f, inner_color);
   
   char* score_text = (char*)TextFormat("Score: %d\n", game_state->score);
   draw_text(game_state->font, score_text, {5, 5}, 32, 0, WHITE_VEC4);

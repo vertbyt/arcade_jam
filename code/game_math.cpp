@@ -53,6 +53,7 @@ Vec2 vec2_perp(Vec2 v) {
   return r;
 }
 
+
 Vec2 operator+(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
 void operator+=(Vec2 &a, Vec2 b) { a.x += b.x; a.y += b.y; }
 
@@ -61,6 +62,12 @@ void operator-=(Vec2 &a, Vec2 b) { a.x -= b.x; a.y -= b.y; }
 
 Vec2 operator*(Vec2 v, f32 s) { return {v.x*s, v.y*s}; }
 Vec2 operator*(f32 s, Vec2 v) { return {v.x*s, v.y*s}; }
+
+
+Vec2 vec2_lerp(Vec2 a, Vec2 b, f32 t) {
+  Vec2 r = a + (b - a)*t;
+  return r;
+}
 
 //
 // Note: Vec3
@@ -90,6 +97,17 @@ Vec4 vec4(Vec2 pos, Vec2 dim) {
   r.dim = dim;
   return r;
 }
+
+Vec4 vec4(u32 color) {
+  Vec4 c = {};
+  c.r = (f32)((color >> 16)&0xFF)/255.f;
+  c.g = (f32)((color >> 8)&0xFF)/255.f;
+  c.b = (f32)((color >> 0)&0xFF)/255.f;
+  c.a = (f32)((color >> 24)&0xFF)/255.f;
+  return c;
+}
+
+
 
 Vec4 vec4_fade_alpha(Vec4 v, f32 a) { return {v.r, v.g, v.b, a}; }
 

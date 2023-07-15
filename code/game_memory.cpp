@@ -247,3 +247,6 @@ void allocator_free(Allocator* allocator, void* ptr) {
     allocator->free_list.first = entry;
   }
 }
+global_var Allocator  global_allocator;
+
+Allocator*  get_allocator(void)  { return &global_allocator; };
