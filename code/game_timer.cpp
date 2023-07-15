@@ -46,6 +46,10 @@ b32 timer_step(Timer* timer, f64 seconds, f64 target) {
   return timer_step(timer, seconds);
 }
 
+f32 timer_procent(Timer timer) {
+  f32 r = timer.passed_time/timer.target_time;
+  return r;
+}
 
 b32 timer_is_inactive(Timer t) { return(t.state == Timer_State_Inactive); }
 b32 timer_is_active(Timer t)   { return(t.state == Timer_State_Active); }

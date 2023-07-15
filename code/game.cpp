@@ -38,6 +38,16 @@ struct Polygon {
   s32 point_count;
 };
 
+Polygon polygon_alloc(s32 point_count) {
+  Polygon r = {};
+  
+  Allocator* allocator = get_allocator();
+  r.points = allocator_alloc_array(allocator, Vec2, point_count);
+  r.point_count = point_count;
+  
+  return r;
+}
+
 Polygon polygon_create_explosion(s32 point_count, f32 jaggedness, f32 start_angle) {
   Allocator *allocator = get_allocator();
   
@@ -65,8 +75,8 @@ void draw_polygon(Polygon polygon, Vec2 center, f32 scale, f32 rot, Vec4 color) 
   Loop(i, polygon.point_count) {
     s32 next_index = (i + 1)%polygon.point_count;
 
-    Vec2 p1 = center + polygon.points[i]*scale;    
-    Vec2 p2 = center + polygon.points[next_index]*scale;
+    Vec2 p1 = center + vec2_rotate(polygon.points[i], rot)*scale;    
+    Vec2 p2 = center + vec2_rotate(polygon.points[next_index], rot)*scale;
    
     draw_triangle(p1, center, p2, color);
   }
@@ -91,7 +101,15 @@ void draw_polygon(Polygon poly1, Polygon poly2, f32 lerp_t, Vec2 center, f32 sca
     Vec2 p2 = center + v2*scale;
     
     draw_triangle(p1, center, p2, color);
-    
+  }
+}
+
+void polygon_lerp(Polygon a, Polygon b, f32 lerp_t, Polygon* out) {
+  Assert(a.point_count == b.point_count);
+  Assert(a.point_count == out->point_count);
+  
+  Loop(i, a.point_count) {
+    out->points[i] = vec2_lerp(a.points[i], b.points[i], lerp_t);
   }
 }
 
@@ -185,7 +203,13 @@ struct Chain_Circle {
   b32 should_remove;
 };
 
-
+struct Explosion {
+  Vec2 pos;
+  f32 scale, rot;
+  Timer timer;
+  
+  b32 is_active;
+};
 
 struct Score_Dot {
   Vec2 pos;
@@ -201,15 +225,19 @@ struct Game_State {
   Chain_Circle* chain_circles;
   s32 chain_circle_count;
 
+  Explosion* explosions;
+  s32 explosion_count;
+  
   Score_Dot* score_dots;
   s32 score_dot_count;
   
-  Polygon explosion_polygons[4];
+  Polygon explosion_polygons[8];
+  s32 explosion_polygon_index;
+  Timer explosion_timer;
+  Polygon current_explosion_frame_polygon;
   
   Texture2D chain_circle_texture;
-  Texture2D goon_texture;
-  Texture2D goon_leader_texture;
-  
+
   Font font;
   
   s32 score;
@@ -230,6 +258,7 @@ struct Game_State {
 #define MAX_ENTITIES      512
 #define MAX_CHAIN_CIRCLES 512
 #define MAX_SCORE_DOTS    512
+#define MAX_EXPLOSIONS    8
 
 
 global_var Game_State global_game_state;
@@ -295,6 +324,24 @@ void score_dot_spawn(Vec2 pos, b32 is_blinking = false) {
   Score_Dot* dot = &gs->score_dots[gs->score_dot_count];
   *dot = {pos, 0.0f, is_blinking, false};
   gs->score_dot_count += 1;
+}
+
+
+void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
+  Game_State* gs = get_game_state();
+  
+  Loop(i, gs->explosion_count) {
+    Explosion* e = &gs->explosions[i];
+    if(!e->is_active) {
+      e->pos = pos;
+      e->scale = scale;
+      e->rot = 2.0f*Pi32*random_f32();
+      e->timer = timer_start(time);
+      e->is_active = true;
+      
+      return;
+    }
+  }
 }
 
 // NOTE: I guess I'm putting functions that use window dimension calculations here,
@@ -505,7 +552,8 @@ void goon_update(Entity* entity) {
 
       if(entity->hit_points <= 0) {
         entity->should_remove = true;
-        chain_circle_spawn(entity->pos, SMALL_CHAIN_CIRCLE);
+        spawn_explosion(entity->pos, SMALL_CHAIN_CIRCLE, 1.0f);
+        //chain_circle_spawn(entity->pos, SMALL_CHAIN_CIRCLE);
       }
       
       if(is_circle_completely_offscreen(entity->pos, entity->radius))
@@ -657,6 +705,64 @@ void spawn_goon_ufo() {
   
   spawn_goon_formation(tank, 5, 5);
 }
+void update_explosion_polygon() {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+
+  s32 ep_count = ArrayCount(gs->explosion_polygons);
+  
+  if(timer_step(&gs->explosion_timer, delta_time)) {
+    gs->explosion_polygon_index += 1;
+    gs->explosion_polygon_index %= ep_count;
+    timer_reset(&gs->explosion_timer);
+  }  
+
+  Polygon* frame = &gs->current_explosion_frame_polygon;
+  Polygon a = gs->explosion_polygons[gs->explosion_polygon_index];
+  Polygon b = gs->explosion_polygons[(gs->explosion_polygon_index + 1)%ep_count];
+  f32 t = timer_procent(gs->explosion_timer);
+  polygon_lerp(a, b, t, frame);
+}
+
+void draw_explosion_polygon(Vec2 pos, f32 scale, f32 rot) {
+  Game_State* gs = get_game_state();
+  
+  Polygon poly = gs->current_explosion_frame_polygon;
+  
+  Vec4 inner_color  = vec4(0xFFFA971D);
+  Vec4 outter_color = vec4(0xFFFBCF12);
+  
+  draw_polygon(poly, pos, scale,      rot, BLACK_VEC4);
+  draw_polygon(poly, pos, scale - 6,  rot, outter_color);
+  draw_polygon(poly, pos, scale*0.5f, rot, inner_color);
+}
+
+void update_explosions() {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Loop(i, gs->explosion_count) {
+    Explosion* e = &gs->explosions[i];
+    if(!e->is_active) continue;
+    
+    if(timer_step(&e->timer, delta_time)) {
+      e->is_active = false;
+    }
+  }
+}
+
+void draw_explosions() {
+  Game_State* gs = get_game_state();
+  
+  Loop(i, gs->explosion_count) {
+    Explosion* e = &gs->explosions[i];
+    if(!e->is_active) continue;
+    
+    draw_explosion_polygon(e->pos, e->scale, e->rot);    
+  }
+}
+
+
 
 void game_init(void) {
   
@@ -691,19 +797,23 @@ void game_init(void) {
   game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
   game_state->chain_circle_count = 0;
   
+  game_state->explosions = allocator_alloc_array(allocator, Explosion, MAX_EXPLOSIONS);
+  game_state->explosion_count = MAX_EXPLOSIONS;
+  
   game_state->score_dots = allocator_alloc_array(allocator, Score_Dot, MAX_SCORE_DOTS);
   game_state->score_dot_count = 0;
   
   game_state->chain_circle_texture = texture_asset_load("chain_circle.png");
   
-  game_state->goon_texture        = texture_asset_load("goon_ship.png");
-  game_state->goon_leader_texture = texture_asset_load("goon_leader_ship.png");
-  
   game_state->font = font_asset_load("karmina.ttf", 32);
   
-  // explosion polygons
+  // explosion polygon
+  s32 point_count = 18;
+  game_state->explosion_polygon_index = 0;
+  game_state->explosion_timer = timer_start(0.12f);
+  game_state->current_explosion_frame_polygon = polygon_alloc(point_count);
   Loop(i, ArrayCount(game_state->explosion_polygons)) {
-    game_state->explosion_polygons[i] = polygon_create_explosion(24, 0.5f, 0.0f);
+    game_state->explosion_polygons[i] = polygon_create_explosion(point_count, 0.5f, 0.0f);
   }
   
   // init some entities
@@ -742,6 +852,9 @@ void game_update(void) {
     goon_timer = timer_start(1.0f + 2*random_f32());
   }
 
+  update_explosion_polygon();
+  update_explosions();
+  
   // update chain circles
   Loop(i, game_state->chain_circle_count) {
     Chain_Circle* c = &game_state->chain_circles[i];
@@ -953,36 +1066,17 @@ void game_render(void) {
     if(dot->is_blinking) color = YELLOW_VEC4;
     draw_quad(dot->pos - dot_dim*0.5f, dot_dim, color);  
   }
-  
-  s32 ep_count = ArrayCount(game_state->explosion_polygons);
-  local_persist s32 ep_index = 0;
-  local_persist f32 flicker_time = 0.0f;
-  f32 flicker_end_time = 0.075f;
-  
-  local_persist f32 rot = 0.0f;
-  // rot += delta_time;
-  
-  flicker_time += delta_time;
-  if(flicker_time > flicker_end_time){
-    ep_index = (ep_index + 1)%ep_count;
-    flicker_time = 0;
-  }
-  
-  Polygon a = game_state->explosion_polygons[ep_index];
-  Polygon b = game_state->explosion_polygons[(ep_index + 1)%ep_count];
-  f32 lerp_t = flicker_time/flicker_end_time;
-  
-  Vec4 inner_color  = vec4(0xFFFA971D);
-  Vec4 outter_color = vec4(0xFFFBCF12);
+
   Vec2 mp = vec2(GetMouseX(), GetMouseY());
+
   
-  draw_polygon(a, b, lerp_t, mp, 52, rot, BLACK_VEC4);
-  draw_polygon(a, b, lerp_t, mp, 50, rot, outter_color);
-  draw_polygon(a, b, lerp_t, mp, 40,  rot, inner_color);
+  if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    spawn_explosion(mp, 100, 1.0f);
+    printf("Boom\n");
+  }
+  draw_explosion_polygon(mp, 100.0f, 0.0f);
   
-  
-  draw_polygon(a, b, lerp_t, mp + vec2(100, 0), 50, 0.5f, outter_color);
-  draw_polygon(a, b, lerp_t, mp + vec2(100, 0), 40, 0.5f, inner_color);
+  draw_explosions();
   
   char* score_text = (char*)TextFormat("Score: %d\n", game_state->score);
   draw_text(game_state->font, score_text, {5, 5}, 32, 0, WHITE_VEC4);
