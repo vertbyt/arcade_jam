@@ -74,6 +74,11 @@ void draw_quad(Texture2D texture, Vec2 pos, Vec2 dim, f32 rot, Vec4 color) {
   draw_quad(texture, src, dest, orig, rot, color);
 }
 
+
+void draw_quad(Texture2D texture, Vec2 pos, Vec2 dim, f32 rot) {
+  draw_quad(texture, pos, dim, rot, {1,1,1,1});
+}
+
 void draw_quad(Texture2D texture, Vec2 pos, Vec2 dim, Vec4 color) {
   draw_quad(texture, pos, dim, 0.0f, color);
 }

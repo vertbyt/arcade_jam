@@ -34,6 +34,7 @@ b32 check_circle_vs_circle(Vec2 p0, f32 r0, Vec2 p1, f32 r1) {
   return r;
 }
 
+f32 random_angle(void) { return(2.0f*Pi32*random_f32()); }
 
 // Polygon
 struct Polygon {
@@ -132,6 +133,7 @@ struct Entity_Base {
   
   Vec2 pos;
   Vec2 dir;
+  Vec2 vel;
   f32 move_speed;
   f32 rotation;
   f32 scale;
@@ -161,13 +163,17 @@ struct Turret : public Entity_Base {
 };
 
 struct Chain_Activator : public Entity_Base {
-  Vec2 target;
-  f32 orbitals_rot;
+  Vec4 start_color, end_color;
+  f32 start_radius, end_radius;
   
+  f32 orbital_radius;
+  f32 orbital_global_rotation;
+    
   struct {
-    Vec2 positions[3];
-    f32  rotations[3];
-  } orbitals;
+    f32 rotation;
+    f32 time;
+    f32 active;
+  } orbitals[5];
 };
 
 struct Goon : public Entity_Base {
@@ -533,7 +539,7 @@ void update_goon(Entity* entity) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
-  Entity_Base* goon = &entity->base;
+  Goon* goon = (Goon*)entity;
   
   Vec2 vel = goon->dir*goon->move_speed;
   Vec2 move_delta = vel*delta_time;
@@ -571,8 +577,7 @@ void update_goon(Entity* entity) {
 
       if(goon->hit_points <= 0) {
         remove_entity(goon);
-        //spawn_explosion(goon->pos, SMALL_CHAIN_CIRCLE, 1.0f);
-        spawn_chain_circle(goon->pos, SMALL_CHAIN_CIRCLE);
+        spawn_explosion(goon->pos, SMALL_CHAIN_CIRCLE, 1.0f);
       }
       
       if(is_circle_completely_offscreen(goon->pos, goon->radius)) remove_entity(goon);
@@ -580,6 +585,87 @@ void update_goon(Entity* entity) {
   }
 }
 
+void update_chain_activator(Entity* entity) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Chain_Activator* activator = (Chain_Activator*)entity;
+  
+  activator->rotation -= delta_time;
+  activator->orbital_global_rotation += 1.5f*delta_time;
+  
+  Loop(i, ArrayCount(activator->orbitals)) {
+    activator->orbitals[i].rotation -= delta_time;
+  }
+  
+  switch(activator->state) {
+    case Entity_State_Initial: {
+      activator->orbital_global_rotation = random_angle();
+      
+      activator->dir = vec2(random_angle());
+      activator->move_speed = 45.0f;
+      
+      Loop(i, ArrayCount(activator->orbitals)) {
+        activator->orbitals[i].rotation = random_angle();
+        activator->orbitals[i].active = true;
+        activator->orbitals[i].time = 0.0f;
+      }
+      
+      activator->color  = activator->start_color;
+      activator->radius = activator->start_radius;
+            
+      entity_change_state(activator, Entity_State_Active);
+    }break;
+    case Entity_State_Active: {
+      Loop(i, MAX_PROJECTILES) {
+        Projectile* p = &gs->projectiles[i];
+        if(!p->is_active) continue;
+        if(p->from_type != Entity_Type_Player) continue;
+        
+        if(check_circle_vs_circle(activator->pos, activator->radius, p->pos, p->radius)) {
+          remove_projectile(p);
+          entity_change_state(activator, Entity_State_Telegraphing);
+          break;
+        }
+      }
+      
+      activator->vel = activator->move_speed*activator->dir;
+      Vec2 move_delta = activator->vel*delta_time;
+      activator->pos += move_delta;
+    }break;
+    case Entity_State_Telegraphing: {
+      s32 orbital_count = ArrayCount(activator->orbitals);
+
+      if(entity_enter_state(activator)) {
+        f32 telegraph_time = 1.5f;
+        
+        Loop(i, orbital_count) {
+          f32 t = (f32)i/(f32)orbital_count;
+          activator->orbitals[i].time = (telegraph_time - 1.0f)*t;
+        }
+        
+        activator->state_timer = timer_start(telegraph_time);
+      }
+      
+      activator->rotation -= 4.0f*delta_time;
+      Loop(i, orbital_count) {
+        activator->orbitals[i].time -= delta_time;
+        activator->orbitals[i].active = activator->orbitals[i].time > 0.0f;
+      }
+      
+      f32 lerp_t = timer_procent(activator->state_timer);
+      ease_out_quad(&lerp_t);
+      
+      activator->radius = lerp_f32(activator->start_radius, activator->end_radius, lerp_t);
+      activator->color  = vec4_lerp(activator->start_color, activator->end_color, lerp_t);
+
+      if(timer_step(&activator->state_timer, delta_time)) {
+        spawn_chain_circle(activator->pos, MEDIUM_CHAIN_CIRCLE);        
+        remove_entity(activator);
+      }
+    }break;
+  }  
+}
 
 void update_projectiles(void) {
   Game_State* gs = get_game_state();
@@ -864,9 +950,10 @@ void update_entities(void) {
   Loop(i, gs->entity_count) {
     Entity* entity = &gs->entities[i];
     switch(entity->type) {
-      case Entity_Type_Player:     { update_player(entity); } break;
-      case Entity_Type_Turret:     { update_turret(entity); } break;
-      case Entity_Type_Goon:       { update_goon(entity); } break;
+      case Entity_Type_Player:          { update_player(entity);          } break;
+      case Entity_Type_Turret:          { update_turret(entity);          } break;
+      case Entity_Type_Goon:            { update_goon(entity);            } break;
+      case Entity_Type_Chain_Activator: { update_chain_activator(entity); } break;
     }
   }
 }
@@ -981,10 +1068,10 @@ void draw_debug_info(void)  {
 }
 
 void draw_entities(void) {
-  Game_State* game_state = get_game_state();
+  Game_State* gs = get_game_state();
 
-  Loop(i, game_state->entity_count) {
-    Entity* the_entity = &game_state->entities[i];
+  Loop(i, gs->entity_count) {
+    Entity* the_entity = &gs->entities[i];
     Entity_Base* entity = (Entity_Base*)the_entity;
   
     switch(entity->type) {
@@ -1039,6 +1126,27 @@ void draw_entities(void) {
           draw_quad(hp_bar_pos, hp_bar_dim, RED_VEC4);
         }
       }break;
+      case Entity_Type_Chain_Activator: {
+        Chain_Activator* activator = (Chain_Activator*)entity;
+        
+        Vec2 dim = vec2(2, 2)*activator->radius;
+        Vec2 center_pos = activator->pos - dim*0.5f;
+        draw_quad(gs->chain_activator_texture, center_pos, dim, activator->rotation, activator->color);
+        
+        Vec2 orbital_dim = vec2(2,2)*activator->orbital_radius;
+        s32 orbital_count = ArrayCount(activator->orbitals);
+        f32 angle = activator->orbital_global_rotation;
+        f32 angle_step = (2.0f*Pi32)/(f32)orbital_count;
+        Loop(i, orbital_count) {
+          if(!activator->orbitals[i].active) continue;
+          Vec2 local_pos  = vec2(angle);
+          Vec2 global_pos = activator->pos + local_pos*(activator->radius + activator->orbital_radius);
+          f32 rot = activator->orbitals[i].rotation;
+          
+          draw_quad(gs->chain_activator_texture, global_pos - orbital_dim*0.5f, orbital_dim, rot, activator->color);
+          angle += angle_step;
+        }        
+      }break;
     }
   }
 }
@@ -1075,7 +1183,7 @@ void draw_chain_circles(void) {
   
     Vec2 indicator_dim = dim*t*0.7f;
     Vec2 indicator_pos = c->pos - indicator_dim*0.5f;
-    draw_quad(game_state->chain_circle_texture, indicator_pos, indicator_dim, color);
+    draw_quad(game_state->chain_circle_texture, indicator_pos, indicator_dim, vec4_fade_alpha(color, 0.25f));
   }
   
 }
@@ -1161,10 +1269,9 @@ void init_game(void) {
   
   // Game state init
   Game_State* game_state = get_game_state();
+  *game_state = {};
   
-  game_state->entities = allocator_alloc_array(allocator, Entity, MAX_ENTITIES);
-  game_state->entity_count = 0;
-
+  game_state->entities      = allocator_alloc_array(allocator, Entity,       MAX_ENTITIES);
   game_state->projectiles   = allocator_alloc_array(allocator, Projectile,   MAX_PROJECTILES);
   game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
   game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
@@ -1200,10 +1307,21 @@ void init_game(void) {
     turret->pos = random_screen_pos(120, 120);
     turret->radius = 20.0f;
     turret->color = BLUE_VEC4;
-    turret->hit_points = 10;
     entity_set_hit_points(turret, 10);
-
+    
+    // Chain activator for testing
+    Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+    activator->pos = get_screen_center();
+    
+    activator->start_radius = 30.0f;
+    activator->end_radius   = 15.0f;
+    activator->start_color  = YELLOW_VEC4;
+    activator->end_color    = WHITE_VEC4;   
+    
+    activator->orbital_radius = 10.0f;
+    
     spawn_goon_ufo();
+    
   };
   
   game_state->is_init = true;

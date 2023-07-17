@@ -2,6 +2,13 @@
 
 #define Pi32 3.141592
 
+void ease_out_quad(f32* ptr) {
+  f32 t = *ptr;
+  *ptr = -t*t + 2*t;
+}
+
+f32 lerp_f32(f32 a, f32 b, f32 t) { return(a + (b - a)*t); }
+
 s32 round_f32_to_s32(f32 value) {
   s32 r = (s32)(value + 0.555f);
   return r;
@@ -108,6 +115,14 @@ Vec4 vec4(u32 color) {
 }
 
 
+Vec4 vec4_lerp(Vec4 c1, Vec4 c2, f32 t) {
+  Vec4 r = {};
+  r.r = c1.r + (c2.r - c1.r)*t; 
+  r.g = c1.g + (c2.g - c1.g)*t; 
+  r.b = c1.b + (c2.b - c1.b)*t; 
+  r.a = c1.a + (c2.a - c1.a)*t; 
+  return r;
+}
 
 Vec4 vec4_fade_alpha(Vec4 v, f32 a) { return {v.r, v.g, v.b, a}; }
 

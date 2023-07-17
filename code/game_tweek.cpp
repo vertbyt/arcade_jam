@@ -16,7 +16,7 @@
 #define TARGET_FPS        60
 #define TARGET_DELTA_TIME (1.0f/(f32)TARGET_FPS)
 
-#define TITLE         "Arcade Jam"
+#define TITLE             "Arcade Jam"
 
 
 #define MAX_ENTITIES      256
@@ -41,8 +41,9 @@
 //
 // Chain circle
 //
-#define SMALL_CHAIN_CIRCLE 40.0f 
-#define BIG_CHAIN_CIRCLE   100.0f
+#define SMALL_CHAIN_CIRCLE  40.0f 
+#define BIG_CHAIN_CIRCLE    110.0f
+#define MEDIUM_CHAIN_CIRCLE 75.0f
 
 #define CHAIN_CIRCLE_EMERGE_TIME        0.05f
 #define MAX_CHAIN_CIRCLE_LIFE_TIME      2.0f

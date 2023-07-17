@@ -1,7 +1,6 @@
 
 TODO:
 
-- chain activator
 - sound(music, hit, chain, score pick up)
 - score dot better visuals and blinking 
 - chain circle tweek
