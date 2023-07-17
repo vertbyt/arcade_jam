@@ -5,9 +5,9 @@ int main() {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, TITLE);
   SetTargetFPS(TARGET_FPS);
   
-  game_init();
+  init_game();
   while (!WindowShouldClose()) {
-    game_update_and_render();
+    do_game_loop();
   }
 
   CloseWindow(); 

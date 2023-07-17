@@ -28,7 +28,24 @@ Rectangle rl_rec(Vec4 r) {
   return rec;
 }
 
-// Colored quad drawing code
+//
+// Line 
+//
+void draw_line(Vec2 start, Vec2 end, f32 thickness, Vec4 color) {
+  DrawLineEx(rl_vec2(start), rl_vec2(end), thickness, rl_color(color));
+}
+
+//
+// Triangle
+//
+void draw_triangle(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
+  DrawTriangle(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
+}
+
+
+//
+// Colored and textured quad
+//
 void draw_quad(Vec2 pos, Vec2 dim, f32 rot, Vec4 color) {
   Vec2 half_dim = dim*0.5f;
   f32 rot_deg = (rot*180.0f)/Pi32;
@@ -42,7 +59,6 @@ void draw_quad_outline(Vec2 pos, Vec2 dim, f32 thickness, Vec4 color) {
   DrawRectangleLinesEx({pos.x, pos.y, dim.width, dim.height}, thickness, col);
 }
 
-// Textured quad drawing code
 void draw_quad(Texture2D texture, Vec4 src, Vec4 dest, Vec2 orig, f32 rot, Vec4 color) {
   Vec2 half_dim = dest.dim*0.5f;
   dest.pos += half_dim;
@@ -62,6 +78,9 @@ void draw_quad(Texture2D texture, Vec2 pos, Vec2 dim, Vec4 color) {
   draw_quad(texture, pos, dim, 0.0f, color);
 }
 
+//
+// Text 
+//
 void draw_text(Font font, char* text, Vec2 pos, f32 font_size, f32 spacing, Vec4 color) {
   DrawTextEx(font, text, rl_vec2(pos), font_size, spacing, rl_color(color));
 }

@@ -1,10 +1,14 @@
 #include "game_base.cpp"
 #include "game_math.cpp"
-#include "game_random.cpp"
-#include "game_timer.cpp"
 #include "game_memory.cpp"
+
 #include "game_asset_catalog.cpp"
+#include "game_timer.cpp"
+#include "game_random.cpp"
+
 #include "game_draw.cpp"
+
+
 
 #define ASPECT_4_BY_3 1
 
@@ -32,320 +36,7 @@ Vec4 YELLOW_VEC4 = {1, 1, 0, 1};
 Vec4 BLACK_VEC4 = {0, 0, 0, 1};
 Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 
-
-struct Polygon {
-  Vec2* points;
-  s32 point_count;
-};
-
-Polygon polygon_alloc(s32 point_count) {
-  Polygon r = {};
-  
-  Allocator* allocator = get_allocator();
-  r.points = allocator_alloc_array(allocator, Vec2, point_count);
-  r.point_count = point_count;
-  
-  return r;
-}
-
-Polygon polygon_create_explosion(s32 point_count, f32 jaggedness, f32 start_angle) {
-  Allocator *allocator = get_allocator();
-  
-  Polygon r = {};
-  r.points = allocator_alloc_array(allocator, Vec2, point_count);
-  r.point_count = point_count;
-  
-  f32 angle = start_angle;
-  f32 angle_step = (2*Pi32)/(f32)point_count;
-  Vec2* points = r.points;
-  Loop(i, point_count) {
-    f32 scale = 1.0f - random_f32()*jaggedness;
-    points[i] = vec2(angle)*scale;
-    angle += angle_step;
-  }
-  
-  return r;
-}
-
-void draw_triangle(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
-  DrawTriangle(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
-}
-
-void draw_polygon(Polygon polygon, Vec2 center, f32 scale, f32 rot, Vec4 color) {
-  Loop(i, polygon.point_count) {
-    s32 next_index = (i + 1)%polygon.point_count;
-
-    Vec2 p1 = center + vec2_rotate(polygon.points[i], rot)*scale;    
-    Vec2 p2 = center + vec2_rotate(polygon.points[next_index], rot)*scale;
-   
-    draw_triangle(p1, center, p2, color);
-  }
-}
-
-void draw_polygon(Polygon poly1, Polygon poly2, f32 lerp_t, Vec2 center, f32 scale, f32 rot, Vec4 color) {
-  if(poly1.point_count != poly2.point_count) {
-    draw_polygon(poly1, center, scale, rot, color);
-    return;
-  }
-  
-  Polygon* a = &poly1;
-  Polygon* b = &poly2;
-  
-  Loop(i, a->point_count) {
-    s32 j = (i + 1)%a->point_count;
-    
-    Vec2 v1 = vec2_rotate(vec2_lerp(a->points[i], b->points[i], lerp_t), rot);
-    Vec2 p1 = center + v1*scale;    
-    
-    Vec2 v2 = vec2_rotate(vec2_lerp(a->points[j], b->points[j], lerp_t), rot);
-    Vec2 p2 = center + v2*scale;
-    
-    draw_triangle(p1, center, p2, color);
-  }
-}
-
-void polygon_lerp(Polygon a, Polygon b, f32 lerp_t, Polygon* out) {
-  Assert(a.point_count == b.point_count);
-  Assert(a.point_count == out->point_count);
-  
-  Loop(i, a.point_count) {
-    out->points[i] = vec2_lerp(a.points[i], b.points[i], lerp_t);
-  }
-}
-
-// Defs
-enum Entity_Type {
-  Entity_Type_None,
-  
-  Entity_Type_Player,
-  Entity_Type_Projectile,
-
-  Entity_Type_Turret,
-  Entity_Type_Goon,
-  Entity_Type_Goon_Leader,
-  
-  Entity_Type_Chain_Block,
-  
-  Entity_Type_Count
-  
-};
-
-enum Entity_State {
-  Entity_State_None,
-  
-  Entity_State_Initial,
-  Entity_State_Active,
-  Entity_State_Waiting,
-  Entity_State_Telegraphing,
-  
-  Entity_State_Count
-};
-
-
-struct Entity_Index {
-  s32 value;
-};
-
-struct Entity {
-  Entity_Index index;
-  
-  Vec2 pos;
-  Vec2 dir;
-  f32 move_speed;
-  f32 rotation;
-  f32 radius;
-  Vec4 color;
-
-  s32 initial_hit_points;
-  s32 hit_points;
-
-  f32 shoot_angle;
-  Timer shoot_cooldown_timer;
-  
-  s32 blinked_count;
-  Timer blink_timer;
-  
-  Timer health_bar_display_timer;
-  
-  b32 has_entered_state;
-  Timer state_timer;
-  Entity_State state;
-  
-  Entity_Type from;
-  
-  b32 should_remove;
-  Entity_Type type;
-};
-
-void entity_set_hit_points(Entity* e, s32 ammount) {
-  e->initial_hit_points = ammount;
-  e->hit_points = ammount;
-}
-
-void entity_change_state(Entity* entity, Entity_State state) {
-  entity->state = state;
-  entity->has_entered_state = false;
-}
-
-b32 entity_enter_state(Entity* entity) {
-  f32 r = !entity->has_entered_state;
-  entity->has_entered_state = true;
-  return r;
-}
-
-struct Chain_Circle {
-  Vec2 pos;
-  f32 radius;
-  f32 target_radius;
-  f32 emerge_time;
-  f32 life_time;
-  f32 life_prolong_time;
-  b32 should_remove;
-};
-
-struct Explosion {
-  Vec2 pos;
-  f32 scale, rot;
-  Timer timer;
-  
-  b32 is_active;
-};
-
-struct Score_Dot {
-  Vec2 pos;
-  f32 blink_time;
-  b32 is_blinking;
-  b32 should_remove;
-};
-
-struct Game_State {
-  Entity* entities;
-  s32 entity_count;
-
-  Chain_Circle* chain_circles;
-  s32 chain_circle_count;
-
-  Explosion* explosions;
-  s32 explosion_count;
-  
-  Score_Dot* score_dots;
-  s32 score_dot_count;
-  
-  Polygon explosion_polygons[8];
-  s32 explosion_polygon_index;
-  Timer explosion_timer;
-  Polygon current_explosion_frame_polygon;
-  
-  Texture2D chain_circle_texture;
-
-  Font font;
-  
-  s32 score;
-  
-  b32 is_init;
-};
-
-
-#define SMALL_CHAIN_CIRCLE 40.0f 
-#define BIG_CHAIN_CIRCLE   100.0f
-
-#define CHAIN_CIRCLE_EMERGE_TIME        0.03f
-#define MAX_CHAIN_CIRCLE_LIFE_TIME      2.0f
-#define CHAIN_CIRCLE_LIFE_PROLONG_TIME  0.4f
-
-#define SCORE_DOT_RADIUS 6
-
-#define MAX_ENTITIES      512
-#define MAX_CHAIN_CIRCLES 512
-#define MAX_SCORE_DOTS    512
-#define MAX_EXPLOSIONS    8
-
-
-global_var Game_State global_game_state;
-
-Game_State* get_game_state(void) { return &global_game_state; }
-
-
-Entity* entity_new(Entity_Type type = Entity_Type_None) {
-  Game_State* gs = get_game_state();
-
-  Assert(gs->entity_count < MAX_ENTITIES);
-
-  Entity* r = &gs->entities[gs->entity_count];
-  *r = {};
-  
-  r->index = {gs->entity_count};
-  r->type = type;
-  r->state = Entity_State_Initial;
-  r->should_remove = false;
-
-  gs->entity_count += 1;
-
-  return r;
-}
-
-void entity_remove(Entity* entity) {
-  Game_State* gs = get_game_state();
-  
-  Entity_Index index = entity->index;
-  Entity* a = &gs->entities[index.value];
-  Entity* b = &gs->entities[gs->entity_count - 1];
-
-  *a = *b;
-  a->index = index;
-  
-  gs->entity_count -= 1;
-}
-
-
-void chain_circle_spawn(Vec2 pos, f32 radius) {
-  
-  Game_State* gs = get_game_state();
-  Assert(gs->chain_circle_count < MAX_CHAIN_CIRCLES);
-  
-  Chain_Circle* c = &gs->chain_circles[gs->chain_circle_count];
-  *c = {};
-  c->pos    = pos;
-  c->target_radius = radius;
-
-  gs->chain_circle_count += 1;
-}
-
-void chain_circle_remove(s32 index) {
-  Game_State* gs = get_game_state();
-
-  gs->chain_circles[index] = gs->chain_circles[gs->chain_circle_count - 1];
-  gs->chain_circle_count -= 1;
-}
-
-void score_dot_spawn(Vec2 pos, b32 is_blinking = false) {
-  Game_State* gs = get_game_state();
-
-  Score_Dot* dot = &gs->score_dots[gs->score_dot_count];
-  *dot = {pos, 0.0f, is_blinking, false};
-  gs->score_dot_count += 1;
-}
-
-
-void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
-  Game_State* gs = get_game_state();
-  
-  Loop(i, gs->explosion_count) {
-    Explosion* e = &gs->explosions[i];
-    if(!e->is_active) {
-      e->pos = pos;
-      e->scale = scale;
-      e->rot = 2.0f*Pi32*random_f32();
-      e->timer = timer_start(time);
-      e->is_active = true;
-      
-      return;
-    }
-  }
-}
-
-// NOTE: I guess I'm putting functions that use window dimension calculations here,
-// since I don't want to have them all over the code.
+// Utils
 b32 is_circle_completely_offscreen(Vec2 pos, f32 radius) {
   b32 r = (pos.x < -radius || pos.x > WINDOW_WIDTH + radius ||
            pos.y < -radius || pos.y > WINDOW_HEIGHT + radius);
@@ -368,7 +59,377 @@ b32 check_circle_vs_circle(Vec2 p0, f32 r0, Vec2 p1, f32 r1) {
   return r;
 }
 
-void player_update(Entity* player) {
+
+// Polygon
+struct Polygon {
+  Vec2* points;
+  s32 point_count;
+};
+
+Polygon polygon_alloc(s32 point_count) {
+  Polygon r = {};
+  
+  Allocator* allocator = get_allocator();
+  r.points = allocator_alloc_array(allocator, Vec2, point_count);
+  r.point_count = point_count;
+  
+  return r;
+}
+
+
+Polygon polygon_create(s32 point_count, f32 jaggedness, f32 start_angle) {
+  Allocator *allocator = get_allocator();
+  
+  Polygon r = {};
+  r.points = allocator_alloc_array(allocator, Vec2, point_count);
+  r.point_count = point_count;
+  
+  f32 angle = start_angle;
+  f32 angle_step = (2*Pi32)/(f32)point_count;
+  Vec2* points = r.points;
+  Loop(i, point_count) {
+    f32 scale = 1.0f - random_f32()*jaggedness;
+    points[i] = vec2(angle)*scale;
+    angle += angle_step;
+  }
+  
+  return r;
+}
+
+
+void polygon_lerp(Polygon a, Polygon b, f32 lerp_t, Polygon* out) {
+  Assert(a.point_count == b.point_count);
+  Assert(a.point_count == out->point_count);
+  
+  Loop(i, a.point_count) {
+    out->points[i] = vec2_lerp(a.points[i], b.points[i], lerp_t);
+  }
+}
+
+void draw_polygon(Polygon polygon, Vec2 center, f32 scale, f32 rot, Vec4 color) {
+  Loop(i, polygon.point_count) {
+    s32 next_index = (i + 1)%polygon.point_count;
+
+    Vec2 p1 = center + vec2_rotate(polygon.points[i], rot)*scale;    
+    Vec2 p2 = center + vec2_rotate(polygon.points[next_index], rot)*scale;
+   
+    draw_triangle(p1, center, p2, color);
+  }
+}
+
+// Defs
+enum Entity_Type {
+  Entity_Type_None,
+  
+  Entity_Type_Player,
+  Entity_Type_Turret,
+  Entity_Type_Goon,
+  Entity_Type_Chain_Activator,
+  
+  Entity_Type_Count
+  
+};
+
+enum Entity_State {
+  Entity_State_None,
+  
+  Entity_State_Initial,
+  Entity_State_Active,
+  Entity_State_Waiting,
+  Entity_State_Telegraphing,
+  
+  Entity_State_Count
+};
+
+
+struct Entity_Id {
+  s64 value;
+};
+
+struct Entity_Index {
+  s32 value;
+};
+
+struct Entity_Base {  
+  Entity_Index index;
+  Entity_Id    id;
+  Entity_Type  type;
+  
+  Vec2 pos;
+  Vec2 dir;
+  f32 move_speed;
+  f32 rotation;
+  f32 scale;
+  f32 radius;
+  Vec4 color;
+
+  s32 initial_hit_points;
+  s32 hit_points;
+  Timer health_bar_display_timer;
+
+  b32 has_entered_state;
+  Timer state_timer;
+  Entity_State state;
+  
+  b32 should_remove;
+};
+
+struct Player : public Entity_Base {
+  f32 shoot_angle;
+  Timer shoot_cooldown_timer;
+};
+
+struct Turret : public Entity_Base {
+  f32 shoot_angle;
+  s32 blinked_count;
+  Timer blink_timer;
+};
+
+struct Chain_Activator : public Entity_Base {
+  Vec2 target;
+  f32 orbitals_rot;
+  
+  struct {
+    Vec2 positions[3];
+    f32  rotations[3];
+  } orbitals;
+};
+
+struct Goon : public Entity_Base {
+  s32 no_data;
+};
+
+struct Entity {
+  union {
+    Entity_Base     base;
+    Player          player;
+    Turret          turret;
+    Chain_Activator chain_activator;
+  };
+  
+  Entity_Type type;
+};
+
+
+void entity_set_hit_points(Entity_Base* base, s32 ammount) {
+  base->initial_hit_points = ammount;
+  base->hit_points = ammount;
+}
+
+void entity_change_state(Entity_Base* base, Entity_State state) {
+  base->state = state;
+  base->has_entered_state = false;
+}
+
+b32 entity_enter_state(Entity_Base* base) {
+  f32 r = !base->has_entered_state;
+  base->has_entered_state = true;
+  return r;
+}
+
+struct Projectile {
+  Vec2 pos, vel, dir;
+  f32 rotation;
+  f32 move_speed;
+  f32 radius;
+  
+  Vec4 color;
+  
+  Entity_Type from_type;
+  Entity_Id   from_id;
+
+  b32 is_active;
+};
+
+struct Chain_Circle {
+  Vec2 pos;
+  f32 radius;
+  f32 target_radius;
+  f32 emerge_time;
+  f32 life_time;
+  f32 life_prolong_time;
+  
+  b32 is_active;
+};
+
+struct Explosion {
+  Vec2 pos;
+  f32 scale, rot;
+  Timer timer;
+  
+  b32 is_active;
+};
+
+struct Score_Dot {
+  Vec2 pos;
+  f32 blink_time;
+  b32 is_blinking;
+  
+  b32 is_active;
+};
+
+struct Game_State {
+  // State
+  Entity* entities;
+  s32 entity_count;
+  s32 next_entity_id;
+  
+  Projectile* projectiles;
+  s32 next_projectile_index;
+  s32 active_projectile_count;
+  
+  Chain_Circle* chain_circles;
+  s32 next_chain_circle_index;
+  s32 active_chain_circle_count;
+
+  Score_Dot* score_dots;
+  s32 next_score_dot_index;
+  s32 active_score_dot_count;
+
+  Explosion* explosions;
+  s32 next_explosion_index;
+  s32 active_explosion_count;
+  
+  s32 score;
+  b32 is_init;
+    
+  // Explosion polygon instance
+  Polygon explosion_polygons[8];
+  s32 explosion_polygon_index;
+  Timer explosion_timer;
+  Polygon current_explosion_frame_polygon;
+  
+  // Assets
+  Texture2D chain_circle_texture;
+  Texture2D chain_activator_texture;
+  Font font;
+  
+  // Perf
+  b32 show_debug_info;
+  f64 update_time;
+  f64 draw_time;
+};
+
+
+#define SMALL_CHAIN_CIRCLE 40.0f 
+#define BIG_CHAIN_CIRCLE   100.0f
+
+#define CHAIN_CIRCLE_EMERGE_TIME        0.03f
+#define MAX_CHAIN_CIRCLE_LIFE_TIME      2.0f
+#define CHAIN_CIRCLE_LIFE_PROLONG_TIME  0.4f
+
+#define SCORE_DOT_RADIUS 6
+
+#define MAX_ENTITIES      128
+
+#define MAX_PROJECTILES   256
+#define MAX_CHAIN_CIRCLES 256
+#define MAX_SCORE_DOTS    256
+
+#define MAX_EXPLOSIONS    8
+
+
+global_var Game_State global_game_state;
+
+Game_State* get_game_state(void) { return &global_game_state; }
+
+Entity* new_entity(Entity_Type type = Entity_Type_None) {
+  Game_State* gs = get_game_state();
+
+  Assert(gs->entity_count < MAX_ENTITIES);
+
+  Entity* entity = &gs->entities[gs->entity_count];
+  *entity = {};
+  
+  entity->type = type;
+  
+  Entity_Base* base = &entity->base;
+  base->index = {gs->entity_count};
+  base->id    = {gs->next_entity_id};
+  base->type  = type;
+  base->state = Entity_State_Initial;
+
+  gs->entity_count   += 1;
+  gs->next_entity_id += 1;
+
+  return entity;
+}
+
+void remove_entity(Entity_Base* base) { base->should_remove = true; }
+void remove_entity(Entity*  entity)   { entity->base.should_remove = true; }
+
+void actually_remove_entities(void) {
+  Game_State* gs = get_game_state();
+  
+  Loop(i, gs->entity_count) {
+    Entity* curr = &gs->entities[i];
+    if(curr->base.should_remove) {
+      Entity* last = &gs->entities[gs->entity_count - 1];
+      *curr = *last;
+      
+      gs->entity_count -= 1;
+    }
+  }
+}
+
+Projectile* new_projectile() {
+  Game_State* gs = get_game_state();
+
+  Projectile* p = &gs->projectiles[gs->next_projectile_index];
+  
+  *p = {};
+  p->is_active = true;
+  
+  gs->next_projectile_index += 1;
+  gs->next_projectile_index %= MAX_PROJECTILES;
+  
+  return p;
+}
+
+void remove_projectile(Projectile* p) { p->is_active = false; }
+
+void spawn_chain_circle(Vec2 pos, f32 radius) {
+  Game_State* gs = get_game_state();
+  
+  Chain_Circle* c = &gs->chain_circles[gs->next_chain_circle_index];
+  *c = {};
+  c->pos           = pos;
+  c->target_radius = radius;
+  c->is_active     = true;
+  
+  gs->next_chain_circle_index += 1;
+  gs->next_chain_circle_index %= MAX_CHAIN_CIRCLES;
+}
+
+void spawn_score_dot(Vec2 pos, b32 is_blinking = false) {
+  Game_State* gs = get_game_state();
+
+  Score_Dot* dot = &gs->score_dots[gs->next_score_dot_index];
+  *dot = {pos, 0.0f, is_blinking, true};
+  
+  gs->next_score_dot_index += 1;
+  gs->next_score_dot_index %= MAX_SCORE_DOTS;
+}
+
+
+void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
+  Game_State* gs = get_game_state();
+
+  Explosion* e = &gs->explosions[gs->next_explosion_index];
+  e->pos = pos;
+  e->scale = scale;
+  e->rot = 2.0f*Pi32*random_f32();
+  e->timer = timer_start(time);
+  e->is_active = true;
+  
+  gs->next_explosion_index += 1;
+  gs->next_explosion_index %= MAX_EXPLOSIONS;
+}
+
+
+void update_player(Entity* entity) {
+  Player* player = (Player*)entity;
+  
   f32 delta_time = GetFrameTime();
 
   Vec2 shoot_dir = {};
@@ -385,13 +446,14 @@ void player_update(Entity* player) {
   if(want_to_shoot && can_shoot) {
     shoot_dir = vec2_normalize(shoot_dir);
 
-    Entity* p = entity_new(Entity_Type_Projectile);
+    Projectile* p = new_projectile();
     p->pos = player->pos;
     p->radius = 6;
     p->color = YELLOW_VEC4;
     p->dir = shoot_dir;
     p->move_speed = 650;
-    p->from = Entity_Type_Player;
+    p->from_type = Entity_Type_Player;
+    p->from_id = player->id;
     
     timer_reset(&player->shoot_cooldown_timer);
   }
@@ -409,69 +471,59 @@ void player_update(Entity* player) {
   Vec2 move_delta = vel*delta_time;
 
   player->pos += move_delta;
-
 }
 
-void projectile_update(Entity* entity) {
-  f32 delta_time = GetFrameTime();
 
-  Vec2 vel = entity->dir*entity->move_speed;
-  Vec2 move_delta = vel*delta_time;
-  
-  entity->pos += move_delta;
-  
-  if(is_circle_completely_offscreen(entity->pos, entity->radius)) {
-    entity->should_remove = true;
-  }
-}
-
-void turret_update(Entity* entity) {
+void update_turret(Entity* entity) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
-  switch(entity->state) {
+  Turret* turret = &entity->turret;
+  
+  switch(turret->state) {
     case Entity_State_Initial: {
-      entity->shoot_angle = random_f32()*2.0f*Pi32;
-      entity_change_state(entity, Entity_State_Waiting);
+      turret->shoot_angle = random_f32()*2.0f*Pi32;
+      entity_change_state(turret, Entity_State_Waiting);
     }break;
     case Entity_State_Waiting: {
-      if(entity_enter_state(entity)) {
-        entity->state_timer = timer_start(5.0f);
+      if(entity_enter_state(turret)) {
+        turret->state_timer = timer_start(5.0f);
       }
 
-      if(timer_step(&entity->state_timer, delta_time)) {
-        entity_change_state(entity, Entity_State_Telegraphing);
+      if(timer_step(&turret->state_timer, delta_time)) {
+        entity_change_state(turret, Entity_State_Telegraphing);
       }
     }break;
     case Entity_State_Telegraphing: {
-      if(entity_enter_state(entity)) {
-        entity->state_timer = timer_start(1.5f);
-        entity->blink_timer = timer_start(0.12f);
-        entity->blinked_count = 0;
+      if(entity_enter_state(turret)) {
+        turret->state_timer = timer_start(1.5f);
+        turret->blink_timer = timer_start(0.12f);
+        turret->blinked_count = 0;
       }
       
-      if(timer_step(&entity->blink_timer, delta_time)) {
-        timer_reset(&entity->blink_timer);
-        entity->blinked_count += 1;
+      if(timer_step(&turret->blink_timer, delta_time)) {
+        timer_reset(&turret->blink_timer);
+        turret->blinked_count += 1;
         
-        if(entity->blinked_count % 2 == 0) entity->color = BLUE_VEC4;
-        else                               entity->color = WHITE_VEC4;
+        if(turret->blinked_count % 2 == 0) turret->color = BLUE_VEC4;
+        else                               turret->color = WHITE_VEC4;
       }
       
-      if(timer_step(&entity->state_timer, delta_time)) {
-        entity->color = BLUE_VEC4;
+      if(timer_step(&turret->state_timer, delta_time)) {
+        turret->color = BLUE_VEC4;
         
         s32 bullet_count = 16;
         
-        f32 angle  = entity->shoot_angle;
+        f32 angle  = turret->shoot_angle;
         f32 spread = Pi32;
         f32 step   = spread/(f32)bullet_count;
         
+        /* @todo
         Loop(i, bullet_count) {
           Vec2 shoot_dir = vec2(angle);
 
           Entity* p = entity_new(Entity_Type_Projectile);
-          p->pos = entity->pos;
+          p->pos = turret->pos;
           p->dir = shoot_dir;
           p->radius = 8.0f;
           p->color = WHITE_VEC4;
@@ -480,85 +532,106 @@ void turret_update(Entity* entity) {
           
           angle += step;
         }
+        */
         
-        entity->shoot_angle += Pi32/6.0f;
-        entity_change_state(entity, Entity_State_Waiting);
+        turret->shoot_angle += Pi32/6.0f;
+        entity_change_state(turret, Entity_State_Waiting);
       }
     }break;
   }
   
+  /* @todo
   Loop(i, gs->entity_count) {
     Entity* p = &gs->entities[i];
     if(p->should_remove) continue;
     if(p->type != Entity_Type_Projectile) continue;
     if(p->from == Entity_Type_Turret) continue;
     
-    Vec2 d = entity->pos - p->pos;
-    if(vec2_length(d) < entity->radius + p->radius) {
-      entity->hit_points -= 1;
-      entity->health_bar_display_timer = timer_start(1.25f);
+    Vec2 d = turret->pos - p->pos;
+    if(vec2_length(d) < turret->radius + p->radius) {
+      turret->hit_points -= 1;
+      turret->health_bar_display_timer = timer_start(1.25f);
       
       p->should_remove = true;
     }
   }
+  */
   
-  timer_step(&entity->health_bar_display_timer, delta_time);
-  if(entity->hit_points <= 0) {
-    entity->should_remove = true;
-    chain_circle_spawn(entity->pos, BIG_CHAIN_CIRCLE);
+  /* @todo
+  timer_step(&turret->health_bar_display_timer, delta_time);
+  if(turret->hit_points <= 0) {
+    turret->should_remove = true;
+    chain_circle_spawn(turret->pos, BIG_CHAIN_CIRCLE);
   }
+  */
 }
 
-void goon_update(Entity* entity) {
+
+void update_goon(Entity* entity) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
-  Vec2 vel = entity->dir*entity->move_speed;
-  Vec2 move_delta = vel*delta_time;
-  entity->pos += move_delta;
+  Entity_Base* goon = &entity->base;
   
-  switch(entity->state) {
+  Vec2 vel = goon->dir*goon->move_speed;
+  Vec2 move_delta = vel*delta_time;
+  goon->pos += move_delta;
+  
+  switch(goon->state) {
     case Entity_State_Initial: {
-      if(entity_enter_state(entity)) {
-        entity->state_timer = timer_start(10.0f);
+      if(entity_enter_state(goon)) {
+        goon->state_timer = timer_start(10.0f);
       }
 
-      b32 on_screen = !is_circle_completely_offscreen(entity->pos, entity->radius);
+      b32 on_screen = !is_circle_completely_offscreen(goon->pos, goon->radius);
       
       if(on_screen) {
-        entity_change_state(entity, Entity_State_Active);
+        entity_change_state(goon, Entity_State_Active);
       }else {
-        if(timer_step(&entity->state_timer, delta_time)) {
-          entity->should_remove = true;
-        }
+        if(timer_step(&goon->state_timer, delta_time)) remove_entity(goon);
       }
     }break;
     case Entity_State_Active: {
-      Loop(i, gs->entity_count) {
-        Entity* p = &gs->entities[i];
-        if(p->should_remove) continue;
-        if(p->type != Entity_Type_Projectile) continue;
-        if(p->from != Entity_Type_Player) continue;
+      Loop(i, MAX_PROJECTILES) {
+        Projectile* p = &gs->projectiles[i];
+        if(!p->is_active) continue;
+        if(p->from_type != Entity_Type_Player) continue;
         
-        if(check_circle_vs_circle(entity->pos, entity->radius, p->pos, p->radius)) {
-          entity->hit_points -= 1;
-          entity->health_bar_display_timer = timer_start(1.25f);
+        if(check_circle_vs_circle(goon->pos, goon->radius, p->pos, p->radius)) {
+          goon->hit_points -= 1;
+          goon->health_bar_display_timer = timer_start(1.25f);
 
-          p->should_remove = true;
+          remove_projectile(p);
         }
       }
 
-      timer_step(&entity->health_bar_display_timer, delta_time);
+      timer_step(&goon->health_bar_display_timer, delta_time);
 
-      if(entity->hit_points <= 0) {
-        entity->should_remove = true;
-        spawn_explosion(entity->pos, SMALL_CHAIN_CIRCLE, 1.0f);
-        //chain_circle_spawn(entity->pos, SMALL_CHAIN_CIRCLE);
+      if(goon->hit_points <= 0) {
+        remove_entity(goon);
+        spawn_explosion(goon->pos, SMALL_CHAIN_CIRCLE, 1.0f);
       }
       
-      if(is_circle_completely_offscreen(entity->pos, entity->radius))
-        entity->should_remove = true;
+      if(is_circle_completely_offscreen(goon->pos, goon->radius)) remove_entity(goon);
     }break;
+  }
+}
+
+
+void update_projectiles(void) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Loop(i, MAX_PROJECTILES) {
+    Projectile* p = &gs->projectiles[i];
+    if(!p->is_active) continue;
+    
+    Vec2 vel = p->dir*p->move_speed;
+    Vec2 move_delta = vel*delta_time;
+    
+    p->pos += move_delta;
+    
+    if(is_circle_completely_offscreen(p->pos, p->radius)) remove_projectile(p);
   }
 }
 
@@ -640,7 +713,7 @@ void spawn_goon_formation(char* formation, s32 formation_width, s32 formation_he
   // Creating and positioning the goons.
   s32 hit_points = 2;
   
-  Entity* leader = entity_new(Entity_Type_Goon_Leader);
+  Goon* leader = (Goon*)new_entity(Entity_Type_Goon);
   
   leader->pos        = leader_pos;
   leader->dir        = vec2(dir_angle);
@@ -654,7 +727,7 @@ void spawn_goon_formation(char* formation, s32 formation_width, s32 formation_he
     //f32 perp_dir_angle = dir_angle;
     Vec2 local_pos = vec2_rotate(goon_local_positions[i], dir_angle);
     
-    Entity* g = entity_new(Entity_Type_Goon);
+    Goon* g = (Goon*)new_entity(Entity_Type_Goon);
     
     g->pos        = leader->pos + local_pos;
     g->dir        = leader->dir;
@@ -741,30 +814,92 @@ void update_explosions() {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
-  Loop(i, gs->explosion_count) {
+  Loop(i, MAX_EXPLOSIONS) {
     Explosion* e = &gs->explosions[i];
     if(!e->is_active) continue;
     
-    if(timer_step(&e->timer, delta_time)) {
-      e->is_active = false;
+    if(timer_step(&e->timer, delta_time)) e->is_active = false;
+  }
+}
+
+void update_chain_circles() {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  // update chain circles
+  Loop(i, MAX_CHAIN_CIRCLES) {
+    Chain_Circle* c = &gs->chain_circles[i];
+    if(!c->is_active) continue;
+
+    b32 emerged = c->emerge_time > CHAIN_CIRCLE_EMERGE_TIME;
+    if(!emerged) {
+      f32 t = c->emerge_time/CHAIN_CIRCLE_EMERGE_TIME;
+      c->radius = c->target_radius*t*t;
+
+      c->emerge_time += delta_time;
+      continue;
+    }
+
+    c->radius = c->target_radius;
+    
+    /* @todo
+    Loop(i, game_state->entity_count) {
+      Entity* e = &game_state->entities[i];
+      if(e->should_remove) continue;
+      if(e->type == Entity_Type_Player) continue;
+
+      b32 is_projectile = e->type == Entity_Type_Projectile;
+      b32 got_hit = check_circle_vs_circle(c->pos, c->radius, e->pos, e->radius);
+
+      if(got_hit) {
+        e->should_remove = true;
+  
+        if(is_projectile) {
+          c->life_prolong_time = CHAIN_CIRCLE_LIFE_PROLONG_TIME;
+        }else {
+          b32 got_big_radius = (e->type == Entity_Type_Turret);
+          f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
+          chain_circle_spawn(e->pos, radius);
+          score_dot_spawn(e->pos); 
+        }
+      }
+    }
+    */
+    
+    f32 life_advance = delta_time;
+    if(c->life_prolong_time > 0.0f) {
+      c->life_prolong_time -= delta_time;
+      life_advance *= 0.4f;
+    }   
+    
+    c->life_time += life_advance;
+    //if(c->life_time > MAX_CHAIN_CIRCLE_LIFE_TIME) c->should_remove = true;
+  }
+}
+
+void update_score_dots() {
+  Game_State* gs = get_game_state();
+  
+  Player* player = NULL;
+  Loop(i, gs->entity_count) {
+    if(gs->entities[i].type == Entity_Type_Player) {
+      player = (Player*)&gs->entities[i];
+      break;
+    }
+  }
+  
+  Loop(i, MAX_SCORE_DOTS) {
+    Score_Dot* dot = &gs->score_dots[i];
+    if(!dot->is_active) continue;
+    
+    if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
+      s32 value = dot->is_blinking ? 5 : 1;
+      gs->score += value;
     }
   }
 }
 
-void draw_explosions() {
-  Game_State* gs = get_game_state();
-  
-  Loop(i, gs->explosion_count) {
-    Explosion* e = &gs->explosions[i];
-    if(!e->is_active) continue;
-    
-    draw_explosion_polygon(e->pos, e->scale, e->rot);    
-  }
-}
-
-
-
-void game_init(void) {
+void init_game(void) {
   
   // seed random
   {
@@ -794,18 +929,16 @@ void game_init(void) {
   game_state->entities = allocator_alloc_array(allocator, Entity, MAX_ENTITIES);
   game_state->entity_count = 0;
 
+  game_state->projectiles   = allocator_alloc_array(allocator, Projectile,   MAX_PROJECTILES);
   game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
-  game_state->chain_circle_count = 0;
+  game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
+  game_state->score_dots    = allocator_alloc_array(allocator, Score_Dot,    MAX_SCORE_DOTS);
   
-  game_state->explosions = allocator_alloc_array(allocator, Explosion, MAX_EXPLOSIONS);
-  game_state->explosion_count = MAX_EXPLOSIONS;
   
-  game_state->score_dots = allocator_alloc_array(allocator, Score_Dot, MAX_SCORE_DOTS);
-  game_state->score_dot_count = 0;
-  
-  game_state->chain_circle_texture = texture_asset_load("chain_circle.png");
-  
-  game_state->font = font_asset_load("karmina.ttf", 32);
+  game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
+  game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
+   
+  game_state->font = font_asset_load("karmina.ttf", 24);
   
   // explosion polygon
   s32 point_count = 18;
@@ -813,21 +946,21 @@ void game_init(void) {
   game_state->explosion_timer = timer_start(0.12f);
   game_state->current_explosion_frame_polygon = polygon_alloc(point_count);
   Loop(i, ArrayCount(game_state->explosion_polygons)) {
-    game_state->explosion_polygons[i] = polygon_create_explosion(point_count, 0.5f, 0.0f);
+    game_state->explosion_polygons[i] = polygon_create(point_count, 0.5f, 0.0f);
   }
   
   // init some entities
   {
-    Entity* player = entity_new(Entity_Type_Player);
+    Player* player = (Player*)new_entity(Entity_Type_Player);
     player->pos = vec2(WINDOW_WIDTH, WINDOW_HEIGHT)*0.5f;
     player->radius = 10.0f;
     player->color = WHITE_VEC4;
-    player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
+    player->shoot_cooldown_timer = timer_start(1*TARGET_DELTA_TIME);
     entity_set_hit_points(player, 1);
 
   
     // Turret for testing
-    Entity* turret = entity_new(Entity_Type_Turret);
+    Turret* turret = (Turret*)new_entity(Entity_Type_Turret);
     turret->pos = random_screen_pos(120, 120);
     turret->radius = 20.0f;
     turret->color = BLUE_VEC4;
@@ -841,9 +974,46 @@ void game_init(void) {
 
 }
 
-void game_update(void) {
-  Game_State* game_state = get_game_state();
+void update_entities(void) {
+  Game_State* gs = get_game_state();
+  
+  // update entities
+  Loop(i, gs->entity_count) {
+    Entity* entity = &gs->entities[i];
+    switch(entity->type) {
+      case Entity_Type_Player:     { update_player(entity); } break;
+      case Entity_Type_Turret:     { update_turret(entity); } break;
+      case Entity_Type_Goon:       { update_goon(entity); } break;
+    }
+  }
+}
+
+void count_active_game_objects(void) {
+  Game_State* gs = get_game_state();
+    
+  gs->active_projectile_count   = 0;
+  gs->active_chain_circle_count = 0;
+  gs->active_score_dot_count    = 0;
+  gs->active_explosion_count    = 0;
+  
+  Loop(i, MAX_PROJECTILES)   
+    gs->active_projectile_count += gs->projectiles[i].is_active;
+  
+  Loop(i, MAX_CHAIN_CIRCLES) 
+    gs->active_chain_circle_count += gs->chain_circles[i].is_active;
+  
+  Loop(i, MAX_SCORE_DOTS) 
+    gs->active_score_dot_count += gs->score_dots[i].is_active;
+    
+  Loop(i, MAX_EXPLOSIONS)
+     gs->active_explosion_count += gs->explosions[i].is_active;
+}
+
+void update_game(void) {
+  Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
+  
+  f64 start_time = GetTime();
   
   local_persist Timer goon_timer = timer_start(1.0f);
 
@@ -852,136 +1022,84 @@ void game_update(void) {
     goon_timer = timer_start(1.0f + 2*random_f32());
   }
 
+  update_entities();  
+  actually_remove_entities();
+
+  update_projectiles();
   update_explosion_polygon();
   update_explosions();
+  update_chain_circles();
+  update_score_dots();
   
-  // update chain circles
-  Loop(i, game_state->chain_circle_count) {
-    Chain_Circle* c = &game_state->chain_circles[i];
-    if(c->should_remove) continue;
-
-    b32 emerged = c->emerge_time > CHAIN_CIRCLE_EMERGE_TIME;
-    if(!emerged) {
-      f32 t = c->emerge_time/CHAIN_CIRCLE_EMERGE_TIME;
-      c->radius = c->target_radius*t*t;
-
-      c->emerge_time += delta_time;
-      continue;
-    }
-
-    c->radius = c->target_radius;
-    
-    Loop(i, game_state->entity_count) {
-      Entity* e = &game_state->entities[i];
-      if(e->should_remove) continue;
-      if(e->type == Entity_Type_Player) continue;
-
-      b32 is_projectile = e->type == Entity_Type_Projectile;
-      b32 got_hit = check_circle_vs_circle(c->pos, c->radius, e->pos, e->radius);
-
-      if(got_hit) {
-        e->should_remove = true;
+  count_active_game_objects();
   
-        if(is_projectile) {
-          c->life_prolong_time = CHAIN_CIRCLE_LIFE_PROLONG_TIME;
-        }else {
-          b32 got_big_radius = (e->type == Entity_Type_Turret);
-          f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
-          chain_circle_spawn(e->pos, radius);
-          score_dot_spawn(e->pos); 
-        }
-      }
-    }
-    
-    f32 life_advance = delta_time;
-    if(c->life_prolong_time > 0.0f) {
-      c->life_prolong_time -= delta_time;
-      life_advance *= 0.4f;
-    }   
-    
-    c->life_time += life_advance;
-    if(c->life_time > MAX_CHAIN_CIRCLE_LIFE_TIME) c->should_remove = true;
-  }
-
-  // update entities
-  Loop(i, game_state->entity_count) {
-    Entity* entity = &game_state->entities[i];
-
-    if(entity->should_remove) continue;
-    
-    switch(entity->type) {
-      case Entity_Type_Player:     { player_update(entity); } break;
-      case Entity_Type_Projectile: { projectile_update(entity); } break;
-      case Entity_Type_Turret:     { turret_update(entity); } break;
-      case Entity_Type_Goon: 
-      case Entity_Type_Goon_Leader: {
-       goon_update(entity); 
-      } break;
-    }
-  }
-
-
-  // update score dots
-  {
-    Entity* player = NULL;
-    Loop(i, game_state->entity_count) {
-      if(game_state->entities[i].type == Entity_Type_Player) {
-        player = &game_state->entities[i];
-        break;
-      }
-    }
-    
-    Loop(i, game_state->score_dot_count) {
-      Score_Dot* dot = &game_state->score_dots[i];
-      
-      if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
-        s32 value = dot->is_blinking ? 5 : 1;
-        game_state->score += value;
-        
-        dot->should_remove = true;
-      }
-    }
-  };
-  
-  // Removing stuff from arrays
-  {
-    // Remove score dots
-    for(s32 i = 0; i < game_state->score_dot_count;) {
-      Score_Dot* dot = &game_state->score_dots[i];
-      if(dot->should_remove) {
-        *dot = game_state->score_dots[game_state->score_dot_count - 1];
-        game_state->score_dot_count -= 1;
-      }else {
-        i += 1;
-      }
-    }
-    
-    // Remove entities.
-    for(s32 i = 0; i < game_state->entity_count;) {
-      Entity* entity = &game_state->entities[i];
-      if(entity->should_remove) entity_remove(entity);
-      else                      i += 1;
-    }  
-  
-    // Remove chain circles
-    for(s32 i = 0; i < game_state->chain_circle_count;) {
-      Chain_Circle* c = &game_state->chain_circles[i];
-      if(c->should_remove) chain_circle_remove(i);
-      else                 i += 1;
-    }
-  }  
+  f64 end_time = GetTime();
+  gs->update_time = end_time - start_time;
 }
 
-void game_render(void) {
+void draw_debug_info(void)  {
+  Game_State* gs = get_game_state();
+  
+  if(IsKeyPressed(KEY_Q)) gs->show_debug_info = !gs->show_debug_info;
+  if(!gs->show_debug_info) return;
+  
+  Vec2 pos = {10, 10};
+  f32 font_size = 24;
+  
+  draw_text(gs->font, "Debug Info:", pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  char* score_text = (char*)TextFormat("entity_count: %d\n", gs->entity_count);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  score_text = (char*)TextFormat("projectile_count: %d\n", gs->active_projectile_count);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  score_text = (char*)TextFormat("chain_circle_count: %d\n", gs->active_chain_circle_count);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  score_text = (char*)TextFormat("score_dot_count: %d\n", gs->active_score_dot_count);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  score_text = (char*)TextFormat("explosion_count: %d\n", gs->active_explosion_count);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  f64 update_ms  = gs->update_time*1000.0f;
+  s32 update_fps = (s32)(1.0f/gs->update_time);
+  score_text = (char*)TextFormat("update_ms:  %.4f[%d fps]\n", update_ms, update_fps);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  f64 draw_ms  = gs->draw_time*1000.0f;
+  s32 draw_fps = (s32)(1.0f/gs->draw_time);
+  score_text = (char*)TextFormat("draw_ms:      %.4f[%d fps]\n", draw_ms, draw_fps);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+  
+  
+  f64 frame_ms  = GetFrameTime();
+  s32 frame_fps = (s32)(1.0f/GetFrameTime());
+  score_text = (char*)TextFormat("frame_ms:     %.4f[%d fps]\n", frame_ms, frame_fps);
+  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  pos.y += font_size;
+}
+
+void draw_entities(void) {
   Game_State* game_state = get_game_state();
-  f32 delta_time = GetFrameTime();
-  
-  BeginDrawing();
-  
-  ClearBackground(rl_color(0.2f, 0.2f, 0.2f, 1.0f));
-  
+
   Loop(i, game_state->entity_count) {
-    Entity* entity = &game_state->entities[i];
+    Entity* the_entity = &game_state->entities[i];
+    Entity_Base* entity = (Entity_Base*)the_entity;
   
     switch(entity->type) {
       case Entity_Type_Player: {
@@ -991,8 +1109,7 @@ void game_render(void) {
         draw_quad        (pos - dim*0.5f, dim, vec4_fade_alpha(WHITE_VEC4, 0.45f));
         draw_quad_outline(pos - dim*0.5f, dim, thickness, WHITE_VEC4);
       }break;
-      case Entity_Type_Goon: 
-      case Entity_Type_Goon_Leader: {
+      case Entity_Type_Goon: {
         Vec2 dim = vec2(1, 1)*entity->radius*2;
         f32 thickness = 3.0f;
         
@@ -1016,8 +1133,7 @@ void game_render(void) {
           draw_quad(hp_bar_pos, hp_bar_dim, RED_VEC4);
         }
       }break;
-      case Entity_Type_Turret: 
-      case Entity_Type_Projectile: {
+      case Entity_Type_Turret: {
         Vec2 dim = vec2(1, 1)*entity->radius*2;
         draw_quad(entity->pos - dim*0.5f, dim, entity->rotation, entity->color);
         
@@ -1039,9 +1155,27 @@ void game_render(void) {
       }break;
     }
   }
+}
+
+void draw_projectiles(void) {
+  Game_State* gs = get_game_state();
   
-  Loop(i, game_state->chain_circle_count){
+  Loop(i, MAX_PROJECTILES) {
+    Projectile* p = &gs->projectiles[i];
+    if(!p->is_active) continue;
+    Vec2 dim = vec2(1, 1)*p->radius*2;
+    draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+  }
+}
+
+
+void draw_chain_circles(void) {
+  Game_State* game_state = get_game_state();
+
+  Loop(i, MAX_CHAIN_CIRCLES){
     Chain_Circle* c = &game_state->chain_circles[i];
+    if(!c->is_active) continue;
+    
     Vec2 dim = vec2(1,1)*2*c->radius;
     Vec2 pos = c->pos - dim*0.5f;
   
@@ -1058,32 +1192,60 @@ void game_render(void) {
     draw_quad(game_state->chain_circle_texture, indicator_pos, indicator_dim, color);
   }
   
+}
+
+void draw_score_dots(void) {
+  Game_State* gs = get_game_state();
+  
   Vec2 dot_dim = vec2(1,1)*2*SCORE_DOT_RADIUS;
-  Loop(i, game_state->score_dot_count) {
-    Score_Dot* dot = &game_state->score_dots[i];
+  Loop(i, MAX_SCORE_DOTS) {
+    Score_Dot* dot = &gs->score_dots[i];
+    if(!dot->is_active) continue;
     
     Vec4 color = WHITE_VEC4;
     if(dot->is_blinking) color = YELLOW_VEC4;
     draw_quad(dot->pos - dot_dim*0.5f, dot_dim, color);  
   }
+}
 
-  Vec2 mp = vec2(GetMouseX(), GetMouseY());
 
+void draw_explosions() {
+  Game_State* gs = get_game_state();
   
-  if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    spawn_explosion(mp, 100, 1.0f);
-    printf("Boom\n");
+  Loop(i, MAX_EXPLOSIONS) {
+    Explosion* e = &gs->explosions[i];
+    if(!e->is_active) continue;
+    
+    draw_explosion_polygon(e->pos, e->scale, e->rot);    
   }
-  draw_explosion_polygon(mp, 100.0f, 0.0f);
+}
+
+void draw_game(void) {
+  Game_State* gs = get_game_state();
   
+  BeginDrawing();
+  ClearBackground(rl_color(0.2f, 0.2f, 0.2f, 1.0f));
+  
+  f64 start_time = GetTime();
+  
+  draw_entities();
+  
+  draw_projectiles();
+  draw_chain_circles();
+  draw_score_dots();
   draw_explosions();
   
-  char* score_text = (char*)TextFormat("Score: %d\n", game_state->score);
-  draw_text(game_state->font, score_text, {5, 5}, 32, 0, WHITE_VEC4);
+  f64 end_time = GetTime();
+  gs->draw_time = end_time - start_time;
+  draw_debug_info();
+  
+  char* score_text = (char*)TextFormat("Score: %d\n", gs->score);
+  draw_text(gs->font, score_text, {450, 5}, 24, 0, WHITE_VEC4);
+  
   EndDrawing();
 }
 
-void game_update_and_render(void) {
-  game_update();
-  game_render();
+void do_game_loop(void) {
+  update_game();
+  draw_game();
 }

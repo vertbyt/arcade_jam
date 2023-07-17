@@ -1,10 +1,8 @@
 
 TODO:
 
-- non-chain explosions
-
+- chain activator
 - sound(music, hit, chain, score pick up)
-- visuals 
 - score dot better visuals and blinking 
 - chain circle tweek
 
