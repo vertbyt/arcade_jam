@@ -401,6 +401,9 @@ void spawn_chain_circle(Vec2 pos, f32 radius) {
   gs->next_chain_circle_index %= MAX_CHAIN_CIRCLES;
 }
 
+void remove_chain_circle(Chain_Circle* c) { c->is_active = false; } 
+
+
 void spawn_score_dot(Vec2 pos, b32 is_blinking = false) {
   Game_State* gs = get_game_state();
 
@@ -411,6 +414,7 @@ void spawn_score_dot(Vec2 pos, b32 is_blinking = false) {
   gs->next_score_dot_index %= MAX_SCORE_DOTS;
 }
 
+void remove_score_dot(Score_Dot* dot) { dot->is_active = false;}
 
 void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
   Game_State* gs = get_game_state();
@@ -426,7 +430,12 @@ void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
   gs->next_explosion_index %= MAX_EXPLOSIONS;
 }
 
+void remove_explosion(Explosion* e) { e->is_active = false; }
 
+
+//
+// @update
+//
 void update_player(Entity* entity) {
   Player* player = (Player*)entity;
   
@@ -518,21 +527,20 @@ void update_turret(Entity* entity) {
         f32 spread = Pi32;
         f32 step   = spread/(f32)bullet_count;
         
-        /* @todo
         Loop(i, bullet_count) {
           Vec2 shoot_dir = vec2(angle);
 
-          Entity* p = entity_new(Entity_Type_Projectile);
+          Projectile* p = new_projectile();
           p->pos = turret->pos;
           p->dir = shoot_dir;
           p->radius = 8.0f;
           p->color = WHITE_VEC4;
           p->move_speed = 100.0f;
-          p->from = Entity_Type_Turret;
+          p->from_type = Entity_Type_Turret;
+          p->from_id   = turret->id;
           
           angle += step;
         }
-        */
         
         turret->shoot_angle += Pi32/6.0f;
         entity_change_state(turret, Entity_State_Waiting);
@@ -540,30 +548,27 @@ void update_turret(Entity* entity) {
     }break;
   }
   
-  /* @todo
-  Loop(i, gs->entity_count) {
-    Entity* p = &gs->entities[i];
-    if(p->should_remove) continue;
-    if(p->type != Entity_Type_Projectile) continue;
-    if(p->from == Entity_Type_Turret) continue;
+  
+  Loop(i, MAX_PROJECTILES) {
+    Projectile* p = &gs->projectiles[i];
+    if(!p->is_active) continue;
+    if(p->from_type != Entity_Type_Player) continue;
     
     Vec2 d = turret->pos - p->pos;
     if(vec2_length(d) < turret->radius + p->radius) {
       turret->hit_points -= 1;
       turret->health_bar_display_timer = timer_start(1.25f);
       
-      p->should_remove = true;
+      remove_projectile(p);
     }
   }
-  */
   
-  /* @todo
+  
   timer_step(&turret->health_bar_display_timer, delta_time);
   if(turret->hit_points <= 0) {
-    turret->should_remove = true;
-    chain_circle_spawn(turret->pos, BIG_CHAIN_CIRCLE);
+    remove_entity(turret);
+    spawn_chain_circle(turret->pos, BIG_CHAIN_CIRCLE);
   }
-  */
 }
 
 
@@ -609,7 +614,8 @@ void update_goon(Entity* entity) {
 
       if(goon->hit_points <= 0) {
         remove_entity(goon);
-        spawn_explosion(goon->pos, SMALL_CHAIN_CIRCLE, 1.0f);
+        //spawn_explosion(goon->pos, SMALL_CHAIN_CIRCLE, 1.0f);
+        spawn_chain_circle(goon->pos, SMALL_CHAIN_CIRCLE);
       }
       
       if(is_circle_completely_offscreen(goon->pos, goon->radius)) remove_entity(goon);
@@ -842,29 +848,30 @@ void update_chain_circles() {
 
     c->radius = c->target_radius;
     
-    /* @todo
-    Loop(i, game_state->entity_count) {
-      Entity* e = &game_state->entities[i];
-      if(e->should_remove) continue;
-      if(e->type == Entity_Type_Player) continue;
-
-      b32 is_projectile = e->type == Entity_Type_Projectile;
-      b32 got_hit = check_circle_vs_circle(c->pos, c->radius, e->pos, e->radius);
-
-      if(got_hit) {
-        e->should_remove = true;
-  
-        if(is_projectile) {
-          c->life_prolong_time = CHAIN_CIRCLE_LIFE_PROLONG_TIME;
-        }else {
-          b32 got_big_radius = (e->type == Entity_Type_Turret);
-          f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
-          chain_circle_spawn(e->pos, radius);
-          score_dot_spawn(e->pos); 
-        }
+    Loop(i, MAX_PROJECTILES) {
+      Projectile* p = &gs->projectiles[i];
+      if(!p->is_active) continue;
+      
+      if(check_circle_vs_circle(c->pos, c->radius, p->pos, p->radius)) {
+        c->life_prolong_time = CHAIN_CIRCLE_LIFE_PROLONG_TIME;
+        remove_projectile(p);
+        break;
       }
     }
-    */
+    
+    Loop(i, gs->entity_count) {
+      Entity_Base* e = (Entity_Base*)&gs->entities[i];
+      if(e->type == Entity_Type_Player) continue;
+      
+      if(check_circle_vs_circle(c->pos, c->radius, e->pos, e->radius)) {
+        b32 got_big_radius = (e->type == Entity_Type_Turret);
+        f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
+        spawn_chain_circle(e->pos, radius);
+        spawn_score_dot(e->pos); 
+        
+        remove_entity(e);
+      }
+    }
     
     f32 life_advance = delta_time;
     if(c->life_prolong_time > 0.0f) {
@@ -873,7 +880,7 @@ void update_chain_circles() {
     }   
     
     c->life_time += life_advance;
-    //if(c->life_time > MAX_CHAIN_CIRCLE_LIFE_TIME) c->should_remove = true;
+    if(c->life_time > MAX_CHAIN_CIRCLE_LIFE_TIME) remove_chain_circle(c);
   }
 }
 
@@ -895,84 +902,11 @@ void update_score_dots() {
     if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
       s32 value = dot->is_blinking ? 5 : 1;
       gs->score += value;
+      remove_score_dot(dot);
     }
   }
 }
 
-void init_game(void) {
-  
-  // seed random
-  {
-    u32 r0 = GetRandomValue(0, 0xFFFF);
-    u32 r1 = GetRandomValue(0, 0xFFFF);
-    u32 seed = r0 | (r1 << 16);
-    random_begin(seed);
-  };
-  
-  // Asset catalog
-  asset_catalog_init();
-  asset_catalog_add("imgs");
-  asset_catalog_add("run_tree/imgs");
-  asset_catalog_add("fonts");
-  asset_catalog_add("run_tree/fonts");
-
-  // Allocator
-  Allocator* allocator = get_allocator();
-  
-  u32 allocator_size = MB(24);
-  u8* allocator_base = (u8*)MemAlloc(allocator_size);
-  *allocator = allocator_create(allocator_base, allocator_size);
-  
-  // Game state init
-  Game_State* game_state = get_game_state();
-  
-  game_state->entities = allocator_alloc_array(allocator, Entity, MAX_ENTITIES);
-  game_state->entity_count = 0;
-
-  game_state->projectiles   = allocator_alloc_array(allocator, Projectile,   MAX_PROJECTILES);
-  game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
-  game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
-  game_state->score_dots    = allocator_alloc_array(allocator, Score_Dot,    MAX_SCORE_DOTS);
-  
-  
-  game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
-  game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
-   
-  game_state->font = font_asset_load("karmina.ttf", 24);
-  
-  // explosion polygon
-  s32 point_count = 18;
-  game_state->explosion_polygon_index = 0;
-  game_state->explosion_timer = timer_start(0.12f);
-  game_state->current_explosion_frame_polygon = polygon_alloc(point_count);
-  Loop(i, ArrayCount(game_state->explosion_polygons)) {
-    game_state->explosion_polygons[i] = polygon_create(point_count, 0.5f, 0.0f);
-  }
-  
-  // init some entities
-  {
-    Player* player = (Player*)new_entity(Entity_Type_Player);
-    player->pos = vec2(WINDOW_WIDTH, WINDOW_HEIGHT)*0.5f;
-    player->radius = 10.0f;
-    player->color = WHITE_VEC4;
-    player->shoot_cooldown_timer = timer_start(1*TARGET_DELTA_TIME);
-    entity_set_hit_points(player, 1);
-
-  
-    // Turret for testing
-    Turret* turret = (Turret*)new_entity(Entity_Type_Turret);
-    turret->pos = random_screen_pos(120, 120);
-    turret->radius = 20.0f;
-    turret->color = BLUE_VEC4;
-    turret->hit_points = 10;
-    entity_set_hit_points(turret, 10);
-
-    spawn_goon_ufo();
-  };
-  
-  game_state->is_init = true;
-
-}
 
 void update_entities(void) {
   Game_State* gs = get_game_state();
@@ -1037,6 +971,9 @@ void update_game(void) {
   gs->update_time = end_time - start_time;
 }
 
+//
+// @draw
+//
 void draw_debug_info(void)  {
   Game_State* gs = get_game_state();
   
@@ -1243,6 +1180,84 @@ void draw_game(void) {
   draw_text(gs->font, score_text, {450, 5}, 24, 0, WHITE_VEC4);
   
   EndDrawing();
+}
+
+
+//
+//@init
+//
+void init_game(void) {
+  
+  // seed random
+  {
+    u32 r0 = GetRandomValue(0, 0xFFFF);
+    u32 r1 = GetRandomValue(0, 0xFFFF);
+    u32 seed = r0 | (r1 << 16);
+    random_begin(seed);
+  };
+  
+  // Asset catalog
+  asset_catalog_init();
+  asset_catalog_add("imgs");
+  asset_catalog_add("run_tree/imgs");
+  asset_catalog_add("fonts");
+  asset_catalog_add("run_tree/fonts");
+
+  // Allocator
+  Allocator* allocator = get_allocator();
+  
+  u32 allocator_size = MB(24);
+  u8* allocator_base = (u8*)MemAlloc(allocator_size);
+  *allocator = allocator_create(allocator_base, allocator_size);
+  
+  // Game state init
+  Game_State* game_state = get_game_state();
+  
+  game_state->entities = allocator_alloc_array(allocator, Entity, MAX_ENTITIES);
+  game_state->entity_count = 0;
+
+  game_state->projectiles   = allocator_alloc_array(allocator, Projectile,   MAX_PROJECTILES);
+  game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
+  game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
+  game_state->score_dots    = allocator_alloc_array(allocator, Score_Dot,    MAX_SCORE_DOTS);
+  
+  
+  game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
+  game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
+   
+  game_state->font = font_asset_load("karmina.ttf", 24);
+  
+  // explosion polygon
+  s32 point_count = 18;
+  game_state->explosion_polygon_index = 0;
+  game_state->explosion_timer = timer_start(0.12f);
+  game_state->current_explosion_frame_polygon = polygon_alloc(point_count);
+  Loop(i, ArrayCount(game_state->explosion_polygons)) {
+    game_state->explosion_polygons[i] = polygon_create(point_count, 0.5f, 0.0f);
+  }
+  
+  // init some entities
+  {
+    Player* player = (Player*)new_entity(Entity_Type_Player);
+    player->pos = vec2(WINDOW_WIDTH, WINDOW_HEIGHT)*0.5f;
+    player->radius = 10.0f;
+    player->color = WHITE_VEC4;
+    player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
+    entity_set_hit_points(player, 1);
+
+  
+    // Turret for testing
+    Turret* turret = (Turret*)new_entity(Entity_Type_Turret);
+    turret->pos = random_screen_pos(120, 120);
+    turret->radius = 20.0f;
+    turret->color = BLUE_VEC4;
+    turret->hit_points = 10;
+    entity_set_hit_points(turret, 10);
+
+    spawn_goon_ufo();
+  };
+  
+  game_state->is_init = true;
 }
 
 void do_game_loop(void) {
