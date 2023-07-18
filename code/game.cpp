@@ -243,8 +243,8 @@ struct Projectile {
   Vec4 color;
   
   b32 has_life_time;
-  f32 life_time;
-  
+  Timer life_timer;
+    
   Entity_Type from_type;
   Entity_Id   from_id;
 
@@ -385,9 +385,14 @@ Projectile* new_projectile() {
 
 void remove_projectile(Projectile* p) { p->is_active = false; }
 
+void projectile_set_parent(Projectile* p, Entity* entity) {
+  p->from_type = entity->type;
+  p->from_id = entity->base.id;
+}
+
 void projectile_set_life_time(Projectile* p, f32 life_time) {
   p->has_life_time = true;
-  p->life_time = life_time;
+  p->life_timer = timer_start(life_time);
 }
 
 void spawn_chain_circle(Vec2 pos, f32 radius) {
@@ -413,7 +418,7 @@ void spawn_score_dot(Vec2 pos, b32 is_special = false) {
   *dot = {};
   
   dot->pos = pos;
-  dot->is_special = is_special && random_b32();
+  dot->is_special = is_special;
   dot->is_active = true;
     
   gs->next_score_dot_index += 1;
@@ -442,24 +447,83 @@ void remove_explosion(Explosion* e) { e->is_active = false; }
 //
 // @update
 //
+Vec2 player_process_input_rhs(void) {
+  Vec2 dir = {};
+  
+  if(IsKeyDown(KEY_UP))    dir.y -= 1;
+  if(IsKeyDown(KEY_DOWN))  dir.y += 1;
+  if(IsKeyDown(KEY_LEFT))  dir.x -= 1;
+  if(IsKeyDown(KEY_RIGHT)) dir.x += 1;
+  
+  if(IsGamepadAvailable(0)) {
+  
+    Vec2 dpad = {};
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_UP))    dpad.y -= 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))  dpad.y += 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_LEFT))  dpad.x -= 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) dpad.x += 1;
+    
+    if(vec2_length(dpad) > 0.0f) dir = dpad;
+    
+    Vec2 stick = {GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X),
+                  GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y)};
+    
+    if(vec2_length(stick) > 0.0f) dir = stick;
+  }
+  
+  return dir;
+}
+
+Vec2 player_process_input_lhs(void) {
+  Vec2 dir = {};
+  
+  if(IsKeyDown(KEY_W)) dir.y -= 1;
+  if(IsKeyDown(KEY_S)) dir.y += 1;
+  if(IsKeyDown(KEY_A)) dir.x -= 1;
+  if(IsKeyDown(KEY_D)) dir.x += 1;
+  
+  if(IsGamepadAvailable(0)) {
+  
+    Vec2 dpad = {};
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP))    dpad.y -= 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN))  dpad.y += 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT))  dpad.x -= 1;
+    if(IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) dpad.x += 1;
+    
+    if(vec2_length(dpad) > 0.0f) dir = dpad;
+    
+    Vec2 stick = {GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X),
+                  GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y)};
+    
+    if(vec2_length(stick) > 0.0f) dir = stick;
+  }
+  
+  return dir;
+}
+
 void update_player(Entity* entity) {
   Player* player = (Player*)entity;
   
   f32 delta_time = GetFrameTime();
-
-  Vec2 shoot_dir = {};
   
-  if(IsKeyDown(KEY_UP))    shoot_dir.y -= 1;
-  if(IsKeyDown(KEY_DOWN))  shoot_dir.y += 1;
-  if(IsKeyDown(KEY_LEFT))  shoot_dir.x -= 1;
-  if(IsKeyDown(KEY_RIGHT)) shoot_dir.x += 1;
+  Vec2 (*process_shoot_input) (void);
+  Vec2 (*process_move_input)  (void);
+  
+  process_shoot_input = player_process_input_rhs;
+  process_move_input  = player_process_input_lhs;
+  
+  Vec2 shoot_dir = process_shoot_input();
+  Vec2 move_dir  = process_move_input();
 
+  shoot_dir = vec2_normalize(shoot_dir);
+  move_dir = vec2_normalize(move_dir);
+  
+  // Shoot
   timer_step(&player->shoot_cooldown_timer, delta_time);
       
   b32 want_to_shoot = vec2_length(shoot_dir) > 0.0f;
   b32 can_shoot     = !timer_is_active(player->shoot_cooldown_timer);
   if(want_to_shoot && can_shoot) {
-    shoot_dir = vec2_normalize(shoot_dir);
 
     Projectile* p = new_projectile();
     p->pos = player->pos;
@@ -467,20 +531,13 @@ void update_player(Entity* entity) {
     p->color = YELLOW_VEC4;
     p->dir = shoot_dir;
     p->move_speed = 650;
-    p->from_type = Entity_Type_Player;
-    p->from_id = player->id;
+    
+    projectile_set_parent(p, (Entity*)player);
     
     timer_reset(&player->shoot_cooldown_timer);
   }
-      
-  Vec2 move_dir = {};
-  if(IsKeyDown(KEY_W)) move_dir.y -= 1;
-  if(IsKeyDown(KEY_S)) move_dir.y += 1;
-  if(IsKeyDown(KEY_A)) move_dir.x -= 1;
-  if(IsKeyDown(KEY_D)) move_dir.x += 1;
 
-  move_dir = vec2_normalize(move_dir);
-
+  // Move
   f32 move_speed = 300.0f;
   Vec2 vel = move_dir*move_speed;
   Vec2 move_delta = vel*delta_time;
@@ -532,7 +589,7 @@ void update_laser_turret(Entity* entity) {
         f32 shoot_max_len = vec2_length({WINDOW_WIDTH, WINDOW_HEIGHT});
         
         s32 bullet_count = 65;
-        f32 bullet_radius = 20.0f;
+        f32 bullet_radius = LASER_TURRET_PROJECTILE_RADIUS;
         
         f32 offset_to_gun = turret->radius + LASER_TURRET_GUN_HEIGHT + bullet_radius/2;
         Vec2 pos = turret->pos + shoot_dir*offset_to_gun;
@@ -541,10 +598,14 @@ void update_laser_turret(Entity* entity) {
         Loop(i, bullet_count) {
           Projectile* p = new_projectile();
           p->pos = pos + vec2(random_angle())*random_f32()*3.0f;
-          p->radius = bullet_radius;
           p->rotation = turret->rotation + random_f32(-1,1)*Pi32*0.2f;
-          p->from_type = Entity_Type_Laser_Turret;
-          projectile_set_life_time(p, 2.0f);
+          p->radius = bullet_radius;
+          
+          p->dir = vec2(p->rotation);
+          p->move_speed = 5.0f;
+          
+          projectile_set_parent(p, (Entity*)turret);
+          projectile_set_life_time(p, LASER_TURRET_PROJECTILE_LIFETIME);
           
           pos += shoot_dir*step;
         }
@@ -689,14 +750,30 @@ void update_chain_activator(Entity* entity) {
       activator->pos += move_delta;
     }break;
     case Entity_State_Telegraphing: {
+      Loop(i, MAX_PROJECTILES) {
+        Projectile* p = &gs->projectiles[i];
+        if(!p->is_active) continue;
+        if(p->from_type != Entity_Type_Player) continue;
+        
+        if(check_circle_vs_circle(activator->pos, activator->radius, p->pos, p->radius)) {
+          activator->vel = p->dir*300.0f;
+          remove_projectile(p);
+          break;
+        }
+      }
+      
+      f32 friction = 0.97f;
+      activator->vel *= friction;
+      Vec2 move_delta = activator->vel*delta_time;
+      activator->pos += move_delta;
+      
       s32 orbital_count = ArrayCount(activator->orbitals);
 
       if(entity_enter_state(activator)) {
-        f32 telegraph_time = 1.5f;
-        
+        f32 telegraph_time = 2.25f;
         Loop(i, orbital_count) {
           f32 t = (f32)i/(f32)orbital_count;
-          activator->orbitals[i].time = (telegraph_time - 1.0f)*t;
+          activator->orbitals[i].time = telegraph_time*t;
         }
         
         activator->state_timer = timer_start(telegraph_time);
@@ -729,18 +806,31 @@ void update_projectiles(void) {
   Loop(i, MAX_PROJECTILES) {
     Projectile* p = &gs->projectiles[i];
     if(!p->is_active) continue;
+  
+    if(p->from_type == Entity_Type_Laser_Turret) {
+      b32 should_remove = false;
+      Loop(i, MAX_CHAIN_CIRCLES) {
+        Chain_Circle* c = &gs->chain_circles[i];
+        if(!c->is_active) continue;
+        
+        if(check_circle_vs_circle(p->pos, p->radius, c->pos, c->radius)) {
+          spawn_chain_circle(p->pos, 25.0f);
+          spawn_score_dot(p->pos, true);
+          should_remove = true;
+          break;
+        }
+      }
+      
+      if(should_remove) remove_projectile(p);
+    }
     
     Vec2 vel = p->dir*p->move_speed;
     Vec2 move_delta = vel*delta_time;
-    
     p->pos += move_delta;
     
-    if(p->has_life_time) {
-      p->life_time -= delta_time;
-      if(p->life_time < 0.0f) {
-        remove_projectile(p);
-        continue;
-      }
+    if(p->has_life_time && timer_step(&p->life_timer, delta_time)) {
+      remove_projectile(p);
+      continue;
     }
     
     if(is_circle_completely_offscreen(p->pos, p->radius)) remove_projectile(p);
@@ -967,7 +1057,7 @@ void update_chain_circles() {
         b32 got_big_radius = (e->type == Entity_Type_Laser_Turret);
         f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
         spawn_chain_circle(e->pos, radius);
-        spawn_score_dot(e->pos, true); 
+        spawn_score_dot(e->pos, false); 
         
         remove_entity(e);
       }
@@ -1242,10 +1332,26 @@ void draw_projectiles(void) {
     if(!p->is_active) continue;
     Vec2 dim = vec2(1, 1)*p->radius*2;
     
-    if(p->from_type == Entity_Type_Laser_Turret) {
-      draw_quad(gs->laser_bullet_texture, p->pos - dim*0.5f, dim, p->rotation);
-    }else {
-      draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+    switch(p->from_type) {
+      case Entity_Type_Player: {
+        draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+      } break;
+      case Entity_Type_Laser_Turret: {
+        Vec4 color = {1,1,1,1};
+        
+        if(p->life_timer.passed_time > LASER_TURRET_PROJECTILE_FADE_AFTER) {
+          f32 fade_time = LASER_TURRET_PROJECTILE_LIFETIME - LASER_TURRET_PROJECTILE_FADE_AFTER;
+          
+          f32 t = 1.0f - (p->life_timer.passed_time - LASER_TURRET_PROJECTILE_FADE_AFTER)/fade_time;
+          ease_out_quad(&t);
+        
+          dim.height *= t;
+          if(dim.height < 20) dim.height = 20;         
+          color.a = t;   
+        }
+        
+        draw_quad(gs->laser_bullet_texture, p->pos - dim*0.5f, dim, p->rotation, color);
+      }break;
     }
   }
 }
@@ -1437,7 +1543,7 @@ void init_game(void) {
     Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
     activator->pos = get_screen_center();
     
-    activator->start_radius = 30.0f;
+    activator->start_radius = 25.0f;
     activator->end_radius   = 20.0f;
     activator->start_color  = YELLOW_VEC4;
     activator->end_color    = WHITE_VEC4;   

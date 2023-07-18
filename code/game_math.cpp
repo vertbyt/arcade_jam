@@ -70,6 +70,7 @@ void operator-=(Vec2 &a, Vec2 b) { a.x -= b.x; a.y -= b.y; }
 Vec2 operator*(Vec2 v, f32 s) { return {v.x*s, v.y*s}; }
 Vec2 operator*(f32 s, Vec2 v) { return {v.x*s, v.y*s}; }
 
+void operator*=(Vec2& v, f32 s) { v.x *= s; v.y *= s; }
 
 Vec2 vec2_lerp(Vec2 a, Vec2 b, f32 t) {
   Vec2 r = a + (b - a)*t;
