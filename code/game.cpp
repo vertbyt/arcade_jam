@@ -10,6 +10,30 @@
 
 #include "game_tweek.cpp"
 
+#define ASPECT_4_BY_3 1
+
+#if ASPECT_4_BY_3
+// 640×480, 800×600, 960×720, 1024×768, 1280×960
+#define WINDOW_WIDTH  1024
+#define WINDOW_HEIGHT 768
+#else
+#define WINDOW_WIDTH 1280
+#define WINDOW_HEIGHT 720
+#endif
+
+
+#define TARGET_FPS        60
+#define TARGET_DELTA_TIME (1.0f/(f32)TARGET_FPS)
+
+#define TITLE             "Arcade Jam"
+
+
+#define MAX_ENTITIES      256
+#define MAX_PROJECTILES   256
+#define MAX_CHAIN_CIRCLES 256
+#define MAX_SCORE_DOTS    256
+#define MAX_EXPLOSIONS    16
+
 
 // Utils
 b32 is_circle_completely_offscreen(Vec2 pos, f32 radius) {
@@ -243,8 +267,11 @@ struct Explosion {
 
 struct Score_Dot {
   Vec2 pos;
-  f32 blink_time;
-  b32 is_blinking;
+  b32 is_special;
+  f32 life_time;
+  
+  f32 pulse_time;    
+  f32 pulse_radius;
   
   b32 is_active;
 };
@@ -367,12 +394,16 @@ void spawn_chain_circle(Vec2 pos, f32 radius) {
 void remove_chain_circle(Chain_Circle* c) { c->is_active = false; } 
 
 
-void spawn_score_dot(Vec2 pos, b32 is_blinking = false) {
+void spawn_score_dot(Vec2 pos, b32 is_special = false) {
   Game_State* gs = get_game_state();
 
   Score_Dot* dot = &gs->score_dots[gs->next_score_dot_index];
-  *dot = {pos, 0.0f, is_blinking, true};
+  *dot = {};
   
+  dot->pos = pos;
+  dot->is_special = is_special && random_b32();
+  dot->is_active = true;
+    
   gs->next_score_dot_index += 1;
   gs->next_score_dot_index %= MAX_SCORE_DOTS;
 }
@@ -896,13 +927,15 @@ void update_chain_circles() {
     
     Loop(i, gs->entity_count) {
       Entity_Base* e = (Entity_Base*)&gs->entities[i];
+      if(e->should_remove) continue;
       if(e->type == Entity_Type_Player) continue;
+      
       
       if(check_circle_vs_circle(c->pos, c->radius, e->pos, e->radius)) {
         b32 got_big_radius = (e->type == Entity_Type_Turret);
         f32 radius = got_big_radius ? BIG_CHAIN_CIRCLE : SMALL_CHAIN_CIRCLE;
         spawn_chain_circle(e->pos, radius);
-        spawn_score_dot(e->pos); 
+        spawn_score_dot(e->pos, true); 
         
         remove_entity(e);
       }
@@ -921,7 +954,8 @@ void update_chain_circles() {
 
 void update_score_dots() {
   Game_State* gs = get_game_state();
-  
+  f32 delta_time = GetFrameTime();
+    
   Player* player = NULL;
   Loop(i, gs->entity_count) {
     if(gs->entities[i].type == Entity_Type_Player) {
@@ -935,10 +969,25 @@ void update_score_dots() {
     if(!dot->is_active) continue;
     
     if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
-      s32 value = dot->is_blinking ? 5 : 1;
+      s32 value = dot->is_special ? 5 : 1;
       gs->score += value;
       remove_score_dot(dot);
+      continue;
     }
+    
+    f32 pulse_target_time = 1.0f/SCORE_DOT_PULSE_FREQ;
+    dot->pulse_time += delta_time;
+    if(dot->pulse_time > pulse_target_time) {
+      dot->pulse_time = 0.0f;
+      dot->pulse_radius = 0.0f;   
+    }
+    
+    f32 t = dot->pulse_time/pulse_target_time;
+    ease_out_quad(&t);
+    dot->pulse_radius = lerp_f32(SCORE_DOT_RADIUS, SCORE_DOT_PULSE_TARGET_RADIUS, t);
+    
+    dot->life_time += delta_time;
+    if(dot->life_time > SCORE_DOT_LIFETIME) remove_score_dot(dot);
   }
 }
 
@@ -1185,20 +1234,55 @@ void draw_chain_circles(void) {
     Vec2 indicator_pos = c->pos - indicator_dim*0.5f;
     draw_quad(game_state->chain_circle_texture, indicator_pos, indicator_dim, vec4_fade_alpha(color, 0.25f));
   }
-  
 }
 
 void draw_score_dots(void) {
   Game_State* gs = get_game_state();
+  Vec2 dot_dim = vec2(2,2)*SCORE_DOT_RADIUS;
   
-  Vec2 dot_dim = vec2(1,1)*2*SCORE_DOT_RADIUS;
+  f32 outline_thickness = 2.0f;
+  
   Loop(i, MAX_SCORE_DOTS) {
     Score_Dot* dot = &gs->score_dots[i];
     if(!dot->is_active) continue;
+  
     
-    Vec4 color = WHITE_VEC4;
-    if(dot->is_blinking) color = YELLOW_VEC4;
-    draw_quad(dot->pos - dot_dim*0.5f, dot_dim, color);  
+    Vec4 outter_color = WHITE_VEC4;
+    
+    f32 inner_alpha = 0.5f;
+    Vec4 inner_color = vec4_fade_alpha(outter_color, inner_alpha);  
+        
+    Vec2 center_pos = dot->pos - dot_dim*0.5f;
+    
+    
+    if(dot->is_special) {
+      f32 cos_freq = 1.0f/(2*Pi32);
+      f32 cos_offset = Pi32;
+      
+      f32 x = GetTime();
+      f32 freq = SCORE_DOT_BLINK_FREQ;
+      f32 t = (cosf(x*freq - cos_offset) + 1)/2.0f;
+      inner_color.a = lerp_f32(inner_alpha, 1.0f, t);
+    }
+    
+    
+    if(dot->life_time > SCORE_DOT_FADE_AFTER) {
+      f32 fade_time = (SCORE_DOT_LIFETIME - SCORE_DOT_FADE_AFTER);
+      f32 fade = 1.0f - (dot->life_time - SCORE_DOT_FADE_AFTER)/fade_time;
+      
+      ease_out_quad(&fade);     
+      inner_color.a  *= fade;
+      outter_color.a *= fade;
+    }
+    
+    draw_quad(center_pos, dot_dim, inner_color);
+    draw_quad_outline(center_pos, dot_dim, outline_thickness, outter_color);
+    
+    if(dot->is_special) {
+      Vec2 pulse_dim = vec2(2,2)*dot->pulse_radius;
+      draw_quad_outline(dot->pos - pulse_dim*0.5f, pulse_dim, 2.0f, inner_color);
+      //draw_quad(gs->chain_circle_texture, dot->pos - pulse_dim*0.5f, pulse_dim, inner_color);
+    }
   }
 }
 
@@ -1295,7 +1379,7 @@ void init_game(void) {
   // init some entities
   {
     Player* player = (Player*)new_entity(Entity_Type_Player);
-    player->pos = vec2(WINDOW_WIDTH, WINDOW_HEIGHT)*0.5f;
+    player->pos = get_screen_center();
     player->radius = 10.0f;
     player->color = WHITE_VEC4;
     player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);

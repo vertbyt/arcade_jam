@@ -1,30 +1,3 @@
-//
-// General
-//
-#define ASPECT_4_BY_3 1
-
-#if ASPECT_4_BY_3
-// 640×480, 800×600, 960×720, 1024×768, 1280×960
-#define WINDOW_WIDTH  1024
-#define WINDOW_HEIGHT 768
-#else
-#define WINDOW_WIDTH 1280
-#define WINDOW_HEIGHT 720
-#endif
-
-
-#define TARGET_FPS        60
-#define TARGET_DELTA_TIME (1.0f/(f32)TARGET_FPS)
-
-#define TITLE             "Arcade Jam"
-
-
-#define MAX_ENTITIES      256
-#define MAX_PROJECTILES   256
-#define MAX_CHAIN_CIRCLES 256
-#define MAX_SCORE_DOTS    256
-#define MAX_EXPLOSIONS    16
-
 
 //
 // Goon 
@@ -52,7 +25,14 @@
 //
 // Score dot
 //
-#define SCORE_DOT_RADIUS 6
+#define SCORE_DOT_LIFETIME   12.0f
+#define SCORE_DOT_FADE_AFTER 10.0f
+
+#define SCORE_DOT_BLINK_FREQ 30.0f
+#define SCORE_DOT_PULSE_FREQ 1.5f
+
+#define SCORE_DOT_RADIUS 6.0f
+#define SCORE_DOT_PULSE_TARGET_RADIUS 12.0f
 
 //
 // Colors
