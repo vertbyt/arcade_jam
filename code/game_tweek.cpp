@@ -1,5 +1,15 @@
 
 //
+// Laser turret
+//
+#define LASER_TURRET_GUN_HEIGHT 30.0f
+#define LASER_TURRET_GUN_WIDTH  10.0f
+
+#define LASER_TURRET_RADIUS     20.0f
+
+#define LASER_TURRET_HIT_POINTS 10
+
+//
 // Goon 
 //
 #define GOON_LEADER_COLOR  vec4(0xFF1B68E6)
@@ -41,6 +51,7 @@ Vec4 RED_VEC4    = {1, 0, 0, 1};
 Vec4 GREEN_VEC4  = {0, 1, 0, 1};
 Vec4 BLUE_VEC4   = {0, 0, 1, 1};
 Vec4 YELLOW_VEC4 = {1, 1, 0, 1};
+Vec4 PINK_VEC4   = {1, 0, 1, 1};
 
 Vec4 BLACK_VEC4 = {0, 0, 0, 1};
 Vec4 WHITE_VEC4 = {1, 1, 1, 1};

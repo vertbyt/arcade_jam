@@ -54,5 +54,10 @@ u32  random_u32(void)         { return random_u32(&global_random); }
 b32  random_b32(void)         { return random_b32(&global_random); }
 f32  random_f32(void)         { return random_f32(&global_random); }
 
+f32 random_f32(f32 min, f32 max) {
+  f32 r = min + random_f32()*(max - min);
+  return r;
+}
+
 b32  random_chance(int value)       { return random_chance(&global_random, value); }
 s32  random_range(int min, int max) { return random_range(&global_random, min, max); }
