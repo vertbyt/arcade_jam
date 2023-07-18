@@ -174,7 +174,7 @@ struct Entity_Base {
   Timer state_timer;
   Entity_State state;
   
-  b32 should_remove;
+  b32 is_active;
 };
 
 struct Player : public Entity_Base {
@@ -315,6 +315,7 @@ struct Game_State {
   // Assets
   Texture2D chain_circle_texture;
   Texture2D chain_activator_texture;
+  Texture2D laser_bullet_texture;
   Font font;
   
   // Perf
@@ -343,22 +344,23 @@ Entity* new_entity(Entity_Type type = Entity_Type_None) {
   base->id    = {gs->next_entity_id};
   base->type  = type;
   base->state = Entity_State_Initial;
-
+  base->is_active = true;
+  
   gs->entity_count   += 1;
   gs->next_entity_id += 1;
 
   return entity;
 }
 
-void remove_entity(Entity_Base* base) { base->should_remove = true; }
-void remove_entity(Entity*  entity)   { entity->base.should_remove = true; }
+void remove_entity(Entity_Base* base) { base->is_active = false; }
+void remove_entity(Entity*  entity)   { entity->base.is_active = false; }
 
 void actually_remove_entities(void) {
   Game_State* gs = get_game_state();
   
   Loop(i, gs->entity_count) {
     Entity* curr = &gs->entities[i];
-    if(curr->base.should_remove) {
+    if(!curr->base.is_active) {
       Entity* last = &gs->entities[gs->entity_count - 1];
       *curr = *last;
       
@@ -529,17 +531,17 @@ void update_laser_turret(Entity* entity) {
         Vec2 shoot_dir = vec2(turret->shoot_angle);
         f32 shoot_max_len = vec2_length({WINDOW_WIDTH, WINDOW_HEIGHT});
         
-        s32 bullet_count = 50;
+        s32 bullet_count = 65;
+        f32 bullet_radius = 20.0f;
         
-        f32 offset_to_gun = turret->radius + LASER_TURRET_GUN_HEIGHT;
+        f32 offset_to_gun = turret->radius + LASER_TURRET_GUN_HEIGHT + bullet_radius/2;
         Vec2 pos = turret->pos + shoot_dir*offset_to_gun;
         f32 step = shoot_max_len/bullet_count;
 
         Loop(i, bullet_count) {
           Projectile* p = new_projectile();
-          p->pos = pos;
-          p->radius = 10;
-          p->color = PINK_VEC4;
+          p->pos = pos + vec2(random_angle())*random_f32()*3.0f;
+          p->radius = bullet_radius;
           p->rotation = turret->rotation + random_f32(-1,1)*Pi32*0.2f;
           p->from_type = Entity_Type_Laser_Turret;
           projectile_set_life_time(p, 2.0f);
@@ -957,7 +959,7 @@ void update_chain_circles() {
     
     Loop(i, gs->entity_count) {
       Entity_Base* e = (Entity_Base*)&gs->entities[i];
-      if(e->should_remove) continue;
+      if(!e->is_active) continue;
       if(e->type == Entity_Type_Player) continue;
       if(e->type == Entity_Type_Chain_Activator) continue;
       
@@ -1139,9 +1141,9 @@ void draw_debug_info(void)  {
   pos.y += font_size;
   
   
-  f64 frame_ms  = GetFrameTime();
-  s32 frame_fps = (s32)(1.0f/GetFrameTime());
-  score_text = (char*)TextFormat("frame_ms:     %.4f[%d fps]\n", frame_ms, frame_fps);
+  f64 frame_ms  = GetFrameTime()*1000.0f;
+  s32 frame_fps = (s32)(1.0f/GetFrameTime() + 0.5f);
+  score_text = (char*)TextFormat("frame_ms:   %.4f[%d fps]\n", frame_ms, frame_fps);
   draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
   pos.y += font_size;
 }
@@ -1239,7 +1241,12 @@ void draw_projectiles(void) {
     Projectile* p = &gs->projectiles[i];
     if(!p->is_active) continue;
     Vec2 dim = vec2(1, 1)*p->radius*2;
-    draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+    
+    if(p->from_type == Entity_Type_Laser_Turret) {
+      draw_quad(gs->laser_bullet_texture, p->pos - dim*0.5f, dim, p->rotation);
+    }else {
+      draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+    }
   }
 }
 
@@ -1396,7 +1403,8 @@ void init_game(void) {
   
   game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
   game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
-   
+  game_state->laser_bullet_texture    = texture_asset_load("laser_bullet.png");
+  
   game_state->font = font_asset_load("karmina.ttf", 24);
   
   // explosion polygon
