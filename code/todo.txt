@@ -7,7 +7,6 @@ TODO:
   - 2 songs and menu song
   - player shoot, player hit, explosion, chain effects
   
-- triple shot turret
 - enemy that moves and shoots bullets in N-directions
 - still enemy that shoots in a pattern
 - moving enemy with a shiled that can damage the player 
@@ -17,6 +16,7 @@ TODO:
 
 - polish:
  - laser turret visuals
+ - triple shot turret visuals
  
 - create itch page
 - publish to itch
