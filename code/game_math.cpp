@@ -77,6 +77,11 @@ Vec2 vec2_lerp(Vec2 a, Vec2 b, f32 t) {
   return r;
 }
 
+f32 vec2_lerp_x_to_y(Vec2 v, f32 t) {
+  f32 r = v.x + (v.y - v.x)*t;
+  return r;
+}
+
 //
 // Note: Vec3
 //
