@@ -345,7 +345,8 @@ struct Game_State {
   
   Music songs[2];
   s32 song_index;
-      
+  Timer song_timer;
+
   // perf
   b32 show_debug_info;
   f64 update_time;
@@ -1300,21 +1301,44 @@ void count_active_game_objects(void) {
      gs->active_explosion_count += gs->explosions[i].is_active;
 }
 
+void pause_audio() {
+  Game_State* gs = get_game_state();
+
+  if(gs->song_index != -1) {
+    PauseMusicStream(gs->songs[gs->song_index]);
+  }  
+}
+
+void resume_audio() {
+  Game_State* gs = get_game_state();
+  if(gs->song_index != -1) {
+    ResumeMusicStream(gs->songs[gs->song_index]);
+  }
+}
+
 void update_audio() {
   Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  if(gs->song_index == -1) {
+    gs->song_index = 0;
+    gs->song_timer = timer_start(GetMusicTimeLength(gs->songs[gs->song_index]));
+    PlayMusicStream(gs->songs[gs->song_index]);
+  }
   
   Music curr = gs->songs[gs->song_index];
   UpdateMusicStream(curr);
-  f32 audio_t = GetMusicTimePlayed(curr)/GetMusicTimeLength(curr);
-  if(audio_t == 0.0f) {
+
+  if(timer_step(&gs->song_timer, delta_time)) {
     StopMusicStream(curr);
-    
     gs->song_index += 1;
     if(gs->song_index < ArrayCount(gs->songs)) {
       curr = gs->songs[gs->song_index];
+      gs->song_timer = timer_start(GetMusicTimeLength(curr));
       PlayMusicStream(curr);
-      UpdateMusicStream(curr);
-    } else {      
+    }else {
+      gs->song_index = -1;
+      StopMusicStream(curr);
     }
   }
 }
@@ -1331,7 +1355,8 @@ void update_level() {
   Vec2 tturret_range   = vec2(18, 20);
   Vec2 activator_range = vec2(12, 15);
   
-  if(level_completion > 0.95f) {
+  if(level_completion > 0.975f) {
+    return;
   }
   else if(level_completion > 0.75f) {
   }
@@ -1394,10 +1419,40 @@ void update_level() {
     activator->orbital_radius = 8.0f;
     
     gs->spawn_timer.activator = timer_start(vec2_lerp_x_to_y(activator_range, random_f32()));
-
   }
-  
 }
+
+
+void set_level_to_initial_state() {
+  Game_State* gs = get_game_state();
+  
+  Loop(i, gs->entity_count) gs->entities[i].base.is_active = false;
+  gs->entity_count = 0;
+  
+  Loop(i, MAX_PROJECTILES)   gs->projectiles[i].is_active   = false;
+  Loop(i, MAX_CHAIN_CIRCLES) gs->chain_circles[i].is_active = false;
+  Loop(i, MAX_EXPLOSIONS)    gs->explosions[i].is_active    = false;
+  Loop(i, MAX_SCORE_DOTS)    gs->score_dots[i].is_active    = false;
+  
+  gs->level_time_passed = 0.0f;
+  gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]);
+  gs->song_index = -1;
+  
+  StopMusicStream(gs->songs[0]);
+  StopMusicStream(gs->songs[1]);
+
+  gs->are_spawn_timers_init = false;  
+  
+  Player* player = (Player*)new_entity(Entity_Type_Player);
+  player->pos = get_screen_center();
+  player->radius = 10.0f;
+  player->color = WHITE_VEC4;
+  player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
+  entity_set_hit_points(player, 3);
+  
+  spawn_goon_ufo();
+}
+
 
 void update_game(void) {
   Game_State* gs = get_game_state();
@@ -1831,13 +1886,14 @@ void do_menu_screen(void) {
   
   draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 1.0f});
   draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
-  draw_text_centered(gs->small_font, "Press ENTER to start", WINDOW_HEIGHT - 30, WHITE_VEC4);
+  draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
   EndDrawing();
   
   
   b32 any_button_pressed = IsKeyPressed(KEY_ENTER) || is_any_gamepad_button_pressed();
                             
   if(any_button_pressed) {
+    set_level_to_initial_state();
     change_game_screen(Game_Screen_Game);
     return;
   }
@@ -1921,8 +1977,8 @@ void do_pause_screen(void) {
     char* text = options[gs->pause_screen_option_selected];
     
     if(cstr_equal(text, "Restart")) {
-      // @todo restart
-      printf("Restart\n");
+      set_level_to_initial_state();
+      change_game_screen(Game_Screen_Game);
     }
     else if(cstr_equal(text, "Menu")) {
       // @todo menu
@@ -1997,12 +2053,6 @@ void init_game(void) {
   
   game_state->songs[0] = music_asset_load("the_treasure.mp3");
   game_state->songs[1] = music_asset_load("raining_bits.ogg");
-  game_state->song_index = 0;
-  
-  PlayMusicStream(game_state->songs[game_state->song_index]);
-  UpdateMusicStream(game_state->songs[game_state->song_index]);
-
-  game_state->level_duration = GetMusicTimeLength(game_state->songs[0]) + GetMusicTimeLength(game_state->songs[1]);
   
   game_state->small_font  = font_asset_load("roboto.ttf", 24);
   game_state->medium_font = font_asset_load("roboto.ttf", 48); 
@@ -2016,21 +2066,12 @@ void init_game(void) {
   Loop(i, ArrayCount(game_state->explosion_polygons)) {
     game_state->explosion_polygons[i] = polygon_create(point_count, 0.5f, 0.0f);
   }
-  
-  // init some entities
-  {
-    Player* player = (Player*)new_entity(Entity_Type_Player);
-    player->pos = get_screen_center();
-    player->radius = 10.0f;
-    player->color = WHITE_VEC4;
-    player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
-    entity_set_hit_points(player, 1);
-    
-    spawn_goon_ufo();
-  };
-  
+
   // so that game_draw.cpp has the window dim
   register_draw_dim(WINDOW_WIDTH, WINDOW_HEIGHT);
+  
+  // inital level state
+  set_level_to_initial_state();
 }
 
 void do_game_loop(void) {
