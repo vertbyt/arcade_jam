@@ -285,7 +285,21 @@ struct Score_Dot {
   b32 is_active;
 };
 
+enum Game_Screen {
+  Game_Screen_Menu,
+  Game_Screen_Game,
+  Game_Screen_Paused,
+  Game_Screen_Death,
+  Game_Screen_Win,
+};
+
 struct Game_State {
+  
+  // game screen
+  Game_Screen game_screen;
+  b32 has_entered_game_screen;
+  s32 pause_screen_option_selected;
+  
   // game objects
   Entity* entities;
   s32 entity_count;
@@ -327,8 +341,7 @@ struct Game_State {
   Texture2D chain_circle_texture;
   Texture2D chain_activator_texture;
   Texture2D laser_bullet_texture;
-  Font font;
-  Font score_font;
+  Font small_font, medium_font, big_font;
   
   Music songs[2];
   s32 song_index;
@@ -471,6 +484,18 @@ b32 check_collision_vs_chain_circles(Vec2 pos, f32 radius) {
   }
   
   return hit;
+}
+
+Player* get_player(void) {
+  Game_State* gs = get_game_state();
+  Player* r = NULL;
+  Loop(i, gs->entity_count) {
+    if(gs->entities[i].type == Entity_Type_Player) {
+      r = (Player*)&gs->entities[i];
+      break;
+    }
+  }
+  return r;
 }
 
 //
@@ -637,7 +662,7 @@ void update_laser_turret(Entity* entity) {
       f32 lerp_speed = 0.025f;
       f32 lerp_t = lerp_speed*delta_time;
       
-      f32 disp = (target_angle - turret->shoot_angle);
+      f32 disp = target_angle - turret->shoot_angle;
       if(Abs(target_angle - turret->shoot_angle) >= Pi32) disp = -(2*Pi32 - disp);
       
       turret->shoot_angle += disp*lerp_speed;
@@ -1411,51 +1436,51 @@ void draw_debug_info(void)  {
   Vec2 pos = {10, 10};
   f32 font_size = 24;
   
-  draw_text(gs->font, "Debug Info:", pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, "Debug Info:", pos, WHITE_VEC4);
   pos.y += font_size;
   
   char* score_text = (char*)TextFormat("entity_count: %d\n", gs->entity_count);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   score_text = (char*)TextFormat("projectile_count: %d\n", gs->active_projectile_count);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   score_text = (char*)TextFormat("chain_circle_count: %d\n", gs->active_chain_circle_count);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   score_text = (char*)TextFormat("score_dot_count: %d\n", gs->active_score_dot_count);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   score_text = (char*)TextFormat("explosion_count: %d\n", gs->active_explosion_count);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   f64 update_ms  = gs->update_time*1000.0f;
   s32 update_fps = (s32)(1.0f/gs->update_time);
   score_text = (char*)TextFormat("update_ms:  %.4f[%d fps]\n", update_ms, update_fps);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   f64 draw_ms  = gs->draw_time*1000.0f;
   s32 draw_fps = (s32)(1.0f/gs->draw_time);
   score_text = (char*)TextFormat("draw_ms:      %.4f[%d fps]\n", draw_ms, draw_fps);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
   
   
   f64 frame_ms  = GetFrameTime()*1000.0f;
   s32 frame_fps = (s32)(1.0f/GetFrameTime() + 0.5f);
   score_text = (char*)TextFormat("frame_ms:   %.4f[%d fps]\n", frame_ms, frame_fps);
-  draw_text(gs->font, score_text, pos, font_size, 0, WHITE_VEC4);
+  draw_text(gs->small_font, score_text, pos, WHITE_VEC4);
   pos.y += font_size;
 }
 
@@ -1700,17 +1725,15 @@ void draw_score_and_life(void) {
   Game_State* gs = get_game_state();
   
   char* score_text = (char*)TextFormat("%d\n", gs->score);
-  Vector2 dim = MeasureTextEx(gs->score_font, score_text, 48, 0);
-  draw_text(gs->score_font, score_text, {WINDOW_WIDTH/2 - dim.x/2, 5}, 48, 0, {1,1,1,0.75f});
-  
-  draw_text(gs->font, "Life: 3", {10, 5 + 48/2 - 24/2}, 24, 0, {1,1,1,0.75f});
+  Vector2 dim = MeasureTextEx(gs->big_font, score_text, 48, 0);
+  draw_text(gs->medium_font, score_text, {WINDOW_WIDTH/2 - dim.x/2, 5}, {1,1,1,0.75f});
+  draw_text(gs->small_font, "Life: 3", {10, 5 + 48/2 - 24/2}, {1,1,1,0.75f});
   
 }
 
 void draw_game(void) {
   Game_State* gs = get_game_state();
   
-  BeginDrawing();
   ClearBackground(rl_color(0.2f, 0.2f, 0.2f, 1.0f));
   
   f64 start_time = GetTime();
@@ -1727,12 +1750,201 @@ void draw_game(void) {
   f64 end_time = GetTime();
   gs->draw_time = end_time - start_time;
   draw_debug_info();
-  
-  
-  
-  EndDrawing();
 }
 
+void change_game_screen(Game_Screen screen) {
+  Game_State* gs = get_game_state();
+  gs->game_screen = screen;
+  gs->has_entered_game_screen = false;
+}
+
+b32 enter_game_screen(void) {
+  Game_State* gs = get_game_state();
+  b32 r = !gs->has_entered_game_screen;
+  gs->has_entered_game_screen = true;
+  return r;
+}
+
+
+void do_game_screen(void) {
+  Game_State* gs = get_game_state();
+  Player* player = get_player();
+  
+  
+  update_game();
+  
+  BeginDrawing();
+  draw_game();
+  EndDrawing();
+    
+  if(player->hit_points <= 0) {
+    change_game_screen(Game_Screen_Death);
+    return;
+  }
+  
+  if(IsKeyPressed(KEY_ESCAPE)) {
+    change_game_screen(Game_Screen_Paused);
+    return;
+  }
+  
+  b32 is_level_finished = gs->level_time_passed > gs->level_duration;
+  if(is_level_finished) {
+    change_game_screen(Game_Screen_Win);
+    return;
+  }
+  
+}
+
+b32 is_any_gamepad_button_pressed(void) {
+  b32 r = false;
+  if(IsGamepadAvailable(0)) {
+    r = (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_UP)    ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)  ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)  ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT) ||
+         
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)     ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)   ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)   ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)  ||
+         
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE)           ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_LEFT)      ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)     ||
+         
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_THUMB)       ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_THUMB)      ||
+         
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)  ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)  ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)   ||
+         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2));
+  }
+  
+  return r;
+}
+
+void do_menu_screen(void) {
+  Game_State* gs = get_game_state();
+  
+  BeginDrawing();
+  
+  draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 1.0f});
+  draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
+  draw_text_centered(gs->small_font, "Press ENTER to start", WINDOW_HEIGHT - 30, WHITE_VEC4);
+  EndDrawing();
+  
+  
+  b32 any_button_pressed = IsKeyPressed(KEY_ENTER) || is_any_gamepad_button_pressed();
+                            
+  if(any_button_pressed) {
+    change_game_screen(Game_Screen_Game);
+    return;
+  }
+}
+
+s32 get_option_navigation_direction() {
+  s32 r = 0;
+  
+  if(IsKeyPressed(KEY_W)) r -= 1;
+  if(IsKeyPressed(KEY_S)) r += 1;
+  
+  if(IsKeyPressed(KEY_UP))   r -= 1;
+  if(IsKeyPressed(KEY_DOWN)) r += 1;
+  
+  if(IsGamepadAvailable(0)) {
+    if(IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP))   r -= 1;
+    if(IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) r += 1;
+  }
+  
+  r = Sign(r);
+  return r;
+}
+
+b32 hit_option() {
+  b32 r = false;
+  
+  if(IsKeyPressed(KEY_ENTER)) r = true;
+  if(IsGamepadAvailable(0)) {
+    if(IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) r = true;
+  }
+  
+  return r;
+}
+
+void do_pause_screen(void) {
+  Game_State* gs = get_game_state();
+
+  if(enter_game_screen()) {
+    gs->pause_screen_option_selected = 0;
+  }
+  
+  char* options[2] = {
+    "Restart",
+    "Menu"
+  };
+  
+  s32 option_count = ArrayCount(options);
+  
+  s32 nav_dir = get_option_navigation_direction();
+  if(nav_dir != 0) {
+    gs->pause_screen_option_selected += nav_dir;
+    
+    if(gs->pause_screen_option_selected < 0) gs->pause_screen_option_selected = option_count - 1;
+    if(gs->pause_screen_option_selected > option_count) gs->pause_screen_option_selected = 0;
+  }
+  
+  BeginDrawing();
+  draw_game();
+  draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 0.5f});
+  draw_text_centered(gs->big_font, "Paused", 200, WHITE_VEC4);
+  
+  f32 y = 300;
+  Loop(i, option_count) {
+    b32 is_selected = i == gs->pause_screen_option_selected;
+    
+    Vec4 color = WHITE_VEC4;
+    if(is_selected) {
+      f32 x = GetTime()*12.0f;
+      f32 t = (cosf(x) + 1)/2.0f;
+      color = vec4_lerp(WHITE_VEC4, YELLOW_VEC4, t);
+    }
+    
+    draw_text_centered(gs->medium_font, options[i], y, color);
+    
+    y += gs->medium_font.baseSize;
+  }
+  
+  EndDrawing();
+  
+  if(hit_option()) {
+    char* text = options[gs->pause_screen_option_selected];
+    
+    if(cstr_equal(text, "Restart")) {
+      // @todo restart
+      printf("Restart\n");
+    }
+    else if(cstr_equal(text, "Menu")) {
+      // @todo menu
+      printf("Menu\n");
+    }
+    
+    return;
+  }
+  
+  if(IsKeyPressed(KEY_ESCAPE)) {
+    change_game_screen(Game_Screen_Game);
+    return;
+  }
+  
+}
+
+void do_death_screen(void) {
+}
+
+void do_win_screen(void) {
+  
+}
 
 //
 //@init
@@ -1767,13 +1979,18 @@ void init_game(void) {
   Game_State* game_state = get_game_state();
   *game_state = {};
   
+  
+  // game screen
+  game_state->game_screen = Game_Screen_Menu;
+  
+  // game object allocation
   game_state->entities      = allocator_alloc_array(allocator, Entity,       MAX_ENTITIES);
   game_state->projectiles   = allocator_alloc_array(allocator, Projectile,   MAX_PROJECTILES);
   game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
   game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
   game_state->score_dots    = allocator_alloc_array(allocator, Score_Dot,    MAX_SCORE_DOTS);
   
-  
+  // assets
   game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
   game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
   game_state->laser_bullet_texture    = texture_asset_load("laser_bullet.png");
@@ -1787,8 +2004,9 @@ void init_game(void) {
 
   game_state->level_duration = GetMusicTimeLength(game_state->songs[0]) + GetMusicTimeLength(game_state->songs[1]);
   
-  game_state->font       = font_asset_load("roboto.ttf", 24);
-  game_state->score_font = font_asset_load("roboto.ttf", 48); 
+  game_state->small_font  = font_asset_load("roboto.ttf", 24);
+  game_state->medium_font = font_asset_load("roboto.ttf", 48); 
+  game_state->big_font    = font_asset_load("roboto.ttf", 72);
   
   // explosion polygon
   s32 point_count = 18;
@@ -1809,11 +2027,20 @@ void init_game(void) {
     entity_set_hit_points(player, 1);
     
     spawn_goon_ufo();
-    
   };
+  
+  // so that game_draw.cpp has the window dim
+  register_draw_dim(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
 void do_game_loop(void) {
-  update_game();
-  draw_game();
+  Game_State* gs = get_game_state();
+  
+  switch(gs->game_screen) {
+    case Game_Screen_Menu:   { do_menu_screen();  } break;
+    case Game_Screen_Game:   { do_game_screen();  } break;
+    case Game_Screen_Paused: { do_pause_screen(); } break;
+    case Game_Screen_Death:  { do_death_screen(); } break;
+    case Game_Screen_Win:    { do_win_screen();   } break;
+  }
 }

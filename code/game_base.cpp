@@ -71,3 +71,14 @@ void zero_memory(u8* ptr, s64 size) {
   s64 s1 = size - s0*sizeof(u64);
   Loop(i, s1) p8[i] = 0;
 }
+
+b32 cstr_equal(char* a, char* b) {
+  while(*a != '\0' && *b != '\0') {
+    if(*a != *b) return false;
+    a += 1;
+    b += 1;
+  }
+  
+  if(*a != *b) return false;
+  return true;
+}

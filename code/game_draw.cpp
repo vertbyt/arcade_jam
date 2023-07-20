@@ -1,3 +1,11 @@
+global_var f32 global_draw_width;
+global_var f32 global_draw_height;
+
+void register_draw_dim(f32 width, f32 height){
+  global_draw_width  = width;
+  global_draw_height = height;
+}
+
 
 //
 // Game Draw
@@ -86,6 +94,11 @@ void draw_quad(Texture2D texture, Vec2 pos, Vec2 dim, Vec4 color) {
 //
 // Text 
 //
-void draw_text(Font font, char* text, Vec2 pos, f32 font_size, f32 spacing, Vec4 color) {
-  DrawTextEx(font, text, rl_vec2(pos), font_size, spacing, rl_color(color));
+void draw_text(Font font, char* text, Vec2 pos, Vec4 color) {
+  DrawTextEx(font, text, rl_vec2(pos), font.baseSize, 0, rl_color(color));
+}
+
+void draw_text_centered(Font font, char* text, f32 y, Vec4 color) {
+  Vector2 dim = MeasureTextEx(font, text, font.baseSize, 0);
+  draw_text(font, text, {global_draw_width/2 - dim.x/2, y}, color);
 }
