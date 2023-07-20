@@ -298,7 +298,7 @@ struct Game_State {
   // game screen
   Game_Screen game_screen;
   b32 has_entered_game_screen;
-  s32 pause_screen_option_selected;
+  s32 option_index;
   
   // game objects
   Entity* entities;
@@ -592,6 +592,7 @@ void update_player(Entity* entity) {
     timer_reset(&player->shoot_cooldown_timer);
   }
 
+  if(IsKeyPressed(KEY_J)) player->hit_points -= 1;
   // Move
   f32 move_speed = 300.0f;
   Vec2 vel = move_dir*move_speed;
@@ -1434,13 +1435,16 @@ void set_level_to_initial_state() {
   Loop(i, MAX_EXPLOSIONS)    gs->explosions[i].is_active    = false;
   Loop(i, MAX_SCORE_DOTS)    gs->score_dots[i].is_active    = false;
   
-  gs->level_time_passed = 0.0f;
   gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]);
+  gs->level_time_passed = gs->level_duration*0.9f;
+
   gs->song_index = -1;
   
   StopMusicStream(gs->songs[0]);
   StopMusicStream(gs->songs[1]);
 
+  gs->score = 0;
+  
   gs->are_spawn_timers_init = false;  
   
   Player* player = (Player*)new_entity(Entity_Type_Player);
@@ -1448,7 +1452,7 @@ void set_level_to_initial_state() {
   player->radius = 10.0f;
   player->color = WHITE_VEC4;
   player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
-  entity_set_hit_points(player, 3);
+  entity_set_hit_points(player, 5);
   
   spawn_goon_ufo();
 }
@@ -1778,11 +1782,14 @@ void draw_level_completion_bar(void) {
 
 void draw_score_and_life(void) {
   Game_State* gs = get_game_state();
+  Player* player = get_player();
   
   char* score_text = (char*)TextFormat("%d\n", gs->score);
   Vector2 dim = MeasureTextEx(gs->big_font, score_text, 48, 0);
   draw_text(gs->medium_font, score_text, {WINDOW_WIDTH/2 - dim.x/2, 5}, {1,1,1,0.75f});
-  draw_text(gs->small_font, "Life: 3", {10, 5 + 48/2 - 24/2}, {1,1,1,0.75f});
+  
+  char* life_text = (char*)TextFormat("Life: %d", player->hit_points);
+  draw_text(gs->small_font, life_text, {10, 5 + 48/2 - 24/2}, {1,1,1,0.75f});
   
 }
 
@@ -1825,78 +1832,24 @@ void do_game_screen(void) {
   Game_State* gs = get_game_state();
   Player* player = get_player();
   
+  if(player->hit_points <= 0) {
+    change_game_screen(Game_Screen_Death);
+  }
+  
+  if(IsKeyPressed(KEY_ESCAPE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)) {
+    change_game_screen(Game_Screen_Paused);
+  }
+  
+  b32 is_level_finished = gs->level_time_passed > gs->level_duration;
+  if(is_level_finished) {
+    change_game_screen(Game_Screen_Win);
+  }
   
   update_game();
   
   BeginDrawing();
   draw_game();
   EndDrawing();
-    
-  if(player->hit_points <= 0) {
-    change_game_screen(Game_Screen_Death);
-    return;
-  }
-  
-  if(IsKeyPressed(KEY_ESCAPE)) {
-    change_game_screen(Game_Screen_Paused);
-    return;
-  }
-  
-  b32 is_level_finished = gs->level_time_passed > gs->level_duration;
-  if(is_level_finished) {
-    change_game_screen(Game_Screen_Win);
-    return;
-  }
-  
-}
-
-b32 is_any_gamepad_button_pressed(void) {
-  b32 r = false;
-  if(IsGamepadAvailable(0)) {
-    r = (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_UP)    ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)  ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)  ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT) ||
-         
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)     ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)   ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)   ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)  ||
-         
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE)           ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_LEFT)      ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)     ||
-         
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_THUMB)       ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_THUMB)      ||
-         
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)  ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)  ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)   ||
-         IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2));
-  }
-  
-  return r;
-}
-
-void do_menu_screen(void) {
-  Game_State* gs = get_game_state();
-  
-  BeginDrawing();
-  
-  draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 1.0f});
-  draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
-  draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
-  EndDrawing();
-  
-  
-  b32 any_button_pressed = IsKeyPressed(KEY_ENTER) || is_any_gamepad_button_pressed();
-                            
-  if(any_button_pressed) {
-    set_level_to_initial_state();
-    change_game_screen(Game_Screen_Game);
-    return;
-  }
 }
 
 s32 get_option_navigation_direction() {
@@ -1917,22 +1870,36 @@ s32 get_option_navigation_direction() {
   return r;
 }
 
-b32 hit_option() {
-  b32 r = false;
+b32 check_confirmation_buttons() {
+  if(IsKeyPressed(KEY_ENTER)) return true;
   
-  if(IsKeyPressed(KEY_ENTER)) r = true;
   if(IsGamepadAvailable(0)) {
-    if(IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) r = true;
+    if(IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) return true;
   }
-  
-  return r;
+  return false;
 }
 
-void do_pause_screen(void) {
+void do_menu_screen(void) {
   Game_State* gs = get_game_state();
+  
+  if(check_confirmation_buttons()) {
+    set_level_to_initial_state();
+    change_game_screen(Game_Screen_Game);
+  }
+  
+  BeginDrawing();
+  
+  draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 1.0f});
+  draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
+  draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
+  EndDrawing();
+}
 
+void do_general_options_screen(char* main_text) {
+  Game_State* gs = get_game_state();
+  
   if(enter_game_screen()) {
-    gs->pause_screen_option_selected = 0;
+    gs->option_index = 0;
   }
   
   char* options[2] = {
@@ -1944,20 +1911,33 @@ void do_pause_screen(void) {
   
   s32 nav_dir = get_option_navigation_direction();
   if(nav_dir != 0) {
-    gs->pause_screen_option_selected += nav_dir;
+    gs->option_index += nav_dir;
     
-    if(gs->pause_screen_option_selected < 0) gs->pause_screen_option_selected = option_count - 1;
-    if(gs->pause_screen_option_selected > option_count) gs->pause_screen_option_selected = 0;
+    if(gs->option_index < 0) gs->option_index = option_count - 1;
+    if(gs->option_index >= option_count) gs->option_index = 0;
+  }
+    
+  if(check_confirmation_buttons()) {
+    char* text = options[gs->option_index];
+    
+    if(cstr_equal(text, "Restart")) {
+      set_level_to_initial_state();
+      change_game_screen(Game_Screen_Game);
+    }
+    else if(cstr_equal(text, "Menu")) {
+      change_game_screen(Game_Screen_Menu);
+    }
   }
   
   BeginDrawing();
   draw_game();
   draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 0.5f});
-  draw_text_centered(gs->big_font, "Paused", 200, WHITE_VEC4);
+
+  draw_text_centered(gs->big_font, main_text, 200, WHITE_VEC4);
   
   f32 y = 300;
   Loop(i, option_count) {
-    b32 is_selected = i == gs->pause_screen_option_selected;
+    b32 is_selected = i == gs->option_index;
     
     Vec4 color = WHITE_VEC4;
     if(is_selected) {
@@ -1972,34 +1952,29 @@ void do_pause_screen(void) {
   }
   
   EndDrawing();
-  
-  if(hit_option()) {
-    char* text = options[gs->pause_screen_option_selected];
-    
-    if(cstr_equal(text, "Restart")) {
-      set_level_to_initial_state();
-      change_game_screen(Game_Screen_Game);
-    }
-    else if(cstr_equal(text, "Menu")) {
-      // @todo menu
-      printf("Menu\n");
-    }
-    
-    return;
-  }
-  
-  if(IsKeyPressed(KEY_ESCAPE)) {
+
+}
+
+void do_pause_screen(void) {
+  if(IsKeyPressed(KEY_ESCAPE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)) {
     change_game_screen(Game_Screen_Game);
-    return;
   }
   
+  do_general_options_screen("Paused");
 }
 
 void do_death_screen(void) {
+  Game_State* gs = get_game_state();
+  char text[255];
+  sprintf(text, "Score: %d", gs->score);
+  do_general_options_screen(text);
 }
 
 void do_win_screen(void) {
-  
+  Game_State* gs = get_game_state();
+  char text[255];
+  sprintf(text, "Score: %d", gs->score);
+  do_general_options_screen(text);
 }
 
 //

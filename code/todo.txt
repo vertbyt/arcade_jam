@@ -17,7 +17,6 @@ TODO:
     deadly for the player to be in them or touch them.
 
 - sound:
-  - 2 songs and menu song
   - player shoot, player hit, explosion, chain effects
   
 - menu(start, credits, volume slider)
