@@ -86,3 +86,11 @@ Font font_asset_load(char* file_name, s32 font_size) {
   return r;
 }
 
+Music music_asset_load(char* file_name) {
+  Music r = {};   
+  char path[128];
+  if(asset_catalog_find(file_name, path)) r = LoadMusicStream(path);
+  r.looping = false;
+  
+  return r;
+}

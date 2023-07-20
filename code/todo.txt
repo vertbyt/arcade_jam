@@ -1,20 +1,31 @@
 
+OUT:
+- still enemy that shoots in a pattern???
+- moving enemy with a shiled that can damage the player ???
+
+
 TODO:
 
 - figure out how should the level "flow"!!!!
+  - enemy spawn freqency
+  - difficulty as game progresses
+  - turret aiming???
+  - chain activator movement control.
+  
+- enemy that moves and shoots bullets in N-directions
+  - maybe make this enemy have bullets that infect the chain circles making them
+    deadly for the player to be in them or touch them.
 
 - sound:
   - 2 songs and menu song
   - player shoot, player hit, explosion, chain effects
   
-- enemy that moves and shoots bullets in N-directions
-- still enemy that shoots in a pattern
-- moving enemy with a shiled that can damage the player 
-
 - menu(start, credits, volume slider)
 - pause(restart, menu, volume slider)
+- game over and beat the game screen
 
 - polish:
+ - make the player a butterfly
  - laser turret visuals
  - triple shot turret visuals
  

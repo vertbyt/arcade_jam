@@ -121,12 +121,12 @@ void draw_polygon(Polygon polygon, Vec2 center, f32 scale, f32 rot, Vec4 color) 
 enum Entity_Type {
   Entity_Type_None = 0,
   
-  Entity_Type_Player = (1 << 0),  
-  Entity_Type_Goon   = (1 << 2),
-
+  Entity_Type_Player            = (1 << 0),  
+  Entity_Type_Goon              = (1 << 2),
   Entity_Type_Laser_Turret      = (1 << 3),
   Entity_Type_Triple_Gun_Turret = (1 << 4),
   Entity_Type_Chain_Activator   = (1 << 5),
+  Entity_Type_Infector          = (1 << 6),
 };
 
 enum Entity_State {
@@ -285,7 +285,7 @@ struct Score_Dot {
 };
 
 struct Game_State {
-  // State
+  // game objects
   Entity* entities;
   s32 entity_count;
   s32 next_entity_id;
@@ -306,22 +306,28 @@ struct Game_State {
   s32 next_explosion_index;
   s32 active_explosion_count;
   
+  // level state
+  f32 level_duration;
+  f32 level_time_passed;
   s32 score;
-  b32 is_init;
     
-  // Explosion polygon instance
+  // explosion polygon instance
   Polygon explosion_polygons[8];
   s32 explosion_polygon_index;
   Timer explosion_timer;
   Polygon current_explosion_frame_polygon;
   
-  // Assets
+  // assets
   Texture2D chain_circle_texture;
   Texture2D chain_activator_texture;
   Texture2D laser_bullet_texture;
   Font font;
+  Font score_font;
   
-  // Perf
+  Music songs[2];
+  s32 song_index;
+      
+  // perf
   b32 show_debug_info;
   f64 update_time;
   f64 draw_time;
@@ -595,12 +601,11 @@ void update_laser_turret(Entity* entity) {
   
   // chain circle interaction
   if(check_collision_vs_chain_circles(turret->pos, turret->radius)) {
-    spawn_chain_circle(turret->pos, SMALL_CHAIN_CIRCLE);
+    spawn_chain_circle(turret->pos, BIG_CHAIN_CIRCLE);
     spawn_score_dot(turret->pos, false);
     remove_entity(turret);
     return;
   }
-  
 
   // FSM  
   switch(turret->state) {
@@ -1083,7 +1088,7 @@ void spawn_goon_ufo() {
     ".***."
   };
   
-  spawn_goon_formation(tank, 5, 5);
+  spawn_goon_formation(ufo, 5, 5);
 }
 void update_explosion_polygon() {
   Game_State* gs = get_game_state();
@@ -1249,11 +1254,33 @@ void count_active_game_objects(void) {
      gs->active_explosion_count += gs->explosions[i].is_active;
 }
 
+void update_audio() {
+  Game_State* gs = get_game_state();
+  
+  Music curr = gs->songs[gs->song_index];
+  UpdateMusicStream(curr);
+  f32 audio_t = GetMusicTimePlayed(curr)/GetMusicTimeLength(curr);
+  if(audio_t == 0.0f) {
+    StopMusicStream(curr);
+    
+    gs->song_index += 1;
+    if(gs->song_index < ArrayCount(gs->songs)) {
+      curr = gs->songs[gs->song_index];
+      PlayMusicStream(curr);
+      UpdateMusicStream(curr);
+    } else {      
+    }
+  }
+}
+
 void update_game(void) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
-  
+    
   f64 start_time = GetTime();
+  
+  gs->level_time_passed += delta_time;
+  update_audio();
   
   local_persist Timer goon_timer = timer_start(1.0f);
 
@@ -1548,6 +1575,43 @@ void draw_explosions() {
   }
 }
 
+void draw_level_completion_bar(void) {
+  Game_State* gs = get_game_state();
+  
+  f32 bar_width  = WINDOW_WIDTH*0.9f;
+  f32 bar_height = 10.0f;
+  f32 bottom_padding = 10.0f;
+    
+  Vec2 bar_dim = {bar_width, bar_height};
+  Vec2 bar_pos = {WINDOW_WIDTH/2 - bar_width/2, WINDOW_HEIGHT - bar_height - bottom_padding};
+  
+  f32 cursor_width  = bar_height;
+  f32 cursor_height = bar_height + 5;
+  
+  Vec2 cursor_dim = {cursor_width, cursor_height};  
+  
+  f32 t = gs->level_time_passed/gs->level_duration;
+  f32 cursor_x = lerp_f32(bar_pos.x, bar_pos.x + bar_dim.width - cursor_dim.width, t);
+  f32 cursor_y = bar_pos.y + bar_height/2 - cursor_height/2;
+  Vec2 cursor_pos = {cursor_x, cursor_y};
+  
+  f32 thickness = 2.0f;
+  
+  draw_quad_outline(bar_pos,    bar_dim,    thickness, {1,1,1,0.5f});
+  draw_quad(cursor_pos, cursor_dim, {1,1,1,0.75f});
+}
+
+void draw_score_and_life(void) {
+  Game_State* gs = get_game_state();
+  
+  char* score_text = (char*)TextFormat("%d\n", gs->score);
+  Vector2 dim = MeasureTextEx(gs->score_font, score_text, 48, 0);
+  draw_text(gs->score_font, score_text, {WINDOW_WIDTH/2 - dim.x/2, 5}, 48, 0, {1,1,1,0.75f});
+  
+  draw_text(gs->font, "Life: 3", {10, 5 + 48/2 - 24/2}, 24, 0, {1,1,1,0.75f});
+  
+}
+
 void draw_game(void) {
   Game_State* gs = get_game_state();
   
@@ -1562,13 +1626,14 @@ void draw_game(void) {
   draw_chain_circles();
   draw_score_dots();
   draw_explosions();
+  draw_level_completion_bar();
+  draw_score_and_life();
   
   f64 end_time = GetTime();
   gs->draw_time = end_time - start_time;
   draw_debug_info();
   
-  char* score_text = (char*)TextFormat("Score: %d\n", gs->score);
-  draw_text(gs->font, score_text, {450, 5}, 24, 0, WHITE_VEC4);
+  
   
   EndDrawing();
 }
@@ -1593,6 +1658,8 @@ void init_game(void) {
   asset_catalog_add("run_tree/imgs");
   asset_catalog_add("fonts");
   asset_catalog_add("run_tree/fonts");
+  asset_catalog_add("audio");
+  asset_catalog_add("run_tree/audio");
 
   // Allocator
   Allocator* allocator = get_allocator();
@@ -1616,7 +1683,17 @@ void init_game(void) {
   game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
   game_state->laser_bullet_texture    = texture_asset_load("laser_bullet.png");
   
-  game_state->font = font_asset_load("karmina.ttf", 24);
+  game_state->songs[0] = music_asset_load("the_treasure.mp3");
+  game_state->songs[1] = music_asset_load("raining_bits.ogg");
+  game_state->song_index = 0;
+  
+  PlayMusicStream(game_state->songs[game_state->song_index]);
+  UpdateMusicStream(game_state->songs[game_state->song_index]);
+
+  game_state->level_duration = GetMusicTimeLength(game_state->songs[0]) + GetMusicTimeLength(game_state->songs[1]);
+  
+  game_state->font       = font_asset_load("roboto.ttf", 24);
+  game_state->score_font = font_asset_load("roboto.ttf", 48); 
   
   // explosion polygon
   s32 point_count = 18;
@@ -1635,7 +1712,6 @@ void init_game(void) {
     player->color = WHITE_VEC4;
     player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
     entity_set_hit_points(player, 1);
-
   
     {
       // Turret for testing
@@ -1665,12 +1741,9 @@ void init_game(void) {
     turret->color = GREEN_VEC4;
     entity_set_hit_points(turret, LASER_TURRET_HIT_POINTS);
     
-    
     spawn_goon_ufo();
     
   };
-  
-  game_state->is_init = true;
 }
 
 void do_game_loop(void) {

@@ -22,7 +22,7 @@
 
 #define GOON_LEADER_RADIUS 20.0f
 #define GOON_RADIUS        15.0f
-#define GOON_PADDING       8.0f
+#define GOON_PADDING       5.0f
 #define GOON_MOVE_SPEED    75.0f
 
 //
