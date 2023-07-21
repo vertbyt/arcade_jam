@@ -351,6 +351,15 @@ struct Game_State {
   Timer explosion_timer;
   Polygon current_explosion_frame_polygon;
   
+  // Butterfly 
+  Vec2 butterfly_top_wing[5];
+  f32 top_wing_offset_angles[5];
+  
+  Vec2 butterfly_bottom_wing[5];
+  f32 bottom_wing_offset_angles[5];
+  
+  Timer wing_offset_change_timer;
+  
   // assets
   Texture2D chain_circle_texture;
   Texture2D chain_activator_texture;
@@ -1709,6 +1718,47 @@ void draw_triple_gun_turret(Entity* entity) {
   if(show_health) draw_health_bar((Entity*)turret);
 }
 
+
+void draw_butterfly(Vec2 pos, f32 scale) {
+  Game_State* gs = get_game_state();
+  
+  Vec2* top_wing = gs->butterfly_top_wing;
+  Vec2* bottom_wing = gs->butterfly_bottom_wing;
+  
+  for(s32 i = 1; i < 5 - 1; i += 1) {
+    Vec2 v1 = pos + top_wing[0]*scale;
+    Vec2 v2 = pos + top_wing[i]*scale;
+    Vec2 v3 = pos + top_wing[i+1]*scale;
+
+    draw_triangle(v3, v2, v1, {1,1,1,0.5f});     
+    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+
+    // flipped on x
+    v1.x -= 2*top_wing[0].x*scale;
+    v2.x -= 2*top_wing[i].x*scale;
+    v3.x -= 2*top_wing[i+1].x*scale;
+    draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
+    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+  }
+  
+  for(s32 i = 1; i < 5 - 1; i += 1) {
+    Vec2 v1 = pos + top_wing[0]*scale;
+    Vec2 v2 = pos + bottom_wing[i]*scale;
+    Vec2 v3 = pos + bottom_wing[i+1]*scale;
+    
+    draw_triangle(v3, v2, v1, {1,1,1,0.5f});          
+    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+    
+    // flipped on x    
+    v1.x -= 2*bottom_wing[0].x*scale;
+    v2.x -= 2*bottom_wing[i].x*scale;
+    v3.x -= 2*bottom_wing[i+1].x*scale;
+    draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
+    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+  }
+}
+
+
 void draw_entities(void) {
   Game_State* gs = get_game_state();
 
@@ -1720,9 +1770,12 @@ void draw_entities(void) {
       case Entity_Type_Player: {
         Vec2 pos = entity->pos;
         Vec2 dim = vec2(2,2)*entity->radius; 
+        draw_butterfly(pos, 6.0f*entity->radius);
+        /*
         f32 thickness = 3;
         draw_quad        (pos - dim*0.5f, dim, vec4_fade_alpha(WHITE_VEC4, 0.45f));
         draw_quad_outline(pos - dim*0.5f, dim, thickness, WHITE_VEC4);
+        */
       }break;
       case Entity_Type_Goon: {
         Vec2 dim = vec2(1, 1)*entity->radius*2;
@@ -1926,7 +1979,7 @@ void draw_score_and_life(void) {
 void draw_game(void) {
   Game_State* gs = get_game_state();
   
-  ClearBackground(rl_color(0.2f, 0.2f, 0.2f, 1.0f));
+  ClearBackground(rl_color(0.2f, 0.2f, 0.35f, 1.0f));
   
   f64 start_time = GetTime();
   
@@ -1938,6 +1991,8 @@ void draw_game(void) {
   draw_explosions();
   draw_level_completion_bar();
   draw_score_and_life();
+  
+  draw_butterfly(get_screen_center(), 100.0f);
   
   f64 end_time = GetTime();
   gs->draw_time = end_time - start_time;
@@ -2022,6 +2077,8 @@ void do_menu_screen(void) {
   draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 1.0f});
   draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
   draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
+  
+  draw_butterfly(get_screen_center(), 400.0f);
   EndDrawing();
 }
 
@@ -2142,7 +2199,7 @@ void init_game(void) {
   
   
   // game screen
-  game_state->game_screen = Game_Screen_Menu;
+  game_state->game_screen = Game_Screen_Game;
   
   // game object allocation
   game_state->entities      = allocator_alloc_array(allocator, Entity,       MAX_ENTITIES);
@@ -2171,6 +2228,22 @@ void init_game(void) {
   Loop(i, ArrayCount(game_state->explosion_polygons)) {
     game_state->explosion_polygons[i] = polygon_create(point_count, 0.5f, 0.0f);
   }
+
+  // butterfly
+  Vec2* top_wing    = game_state->butterfly_top_wing;
+  Vec2* bottom_wing = game_state->butterfly_bottom_wing;
+  
+  top_wing[0] = {0, 0};
+  top_wing[1] = {-0.425f, 0.0f};
+  top_wing[2] = {-0.525f, -0.2f};
+  top_wing[3] = {-0.475f, -0.4f};
+  top_wing[4] = {0, -0.1f};
+
+  bottom_wing[0] = {0, 0};
+  bottom_wing[1] = {0.0f,  0.1f};
+  bottom_wing[2] = {-0.2f, 0.3f};
+  bottom_wing[3] = {-0.4f, 0.2f};
+  bottom_wing[4] = {-0.35f, 0.0f};
 
   // so that game_draw.cpp has the window dim
   register_draw_dim(WINDOW_WIDTH, WINDOW_HEIGHT);

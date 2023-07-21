@@ -19,14 +19,8 @@ TODO:
 - sound:
   - player shoot, player hit, explosion, chain effects
   
-- menu(start, credits, volume slider)
-- pause(restart, menu, volume slider)
-- game over and beat the game screen
-
 - polish:
  - make the player a butterfly
- - laser turret visuals
- - triple shot turret visuals
  
 - create itch page
 - publish to itch

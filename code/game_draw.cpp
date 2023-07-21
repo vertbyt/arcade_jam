@@ -50,6 +50,9 @@ void draw_triangle(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
   DrawTriangle(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
 }
 
+void draw_triangle_outline(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
+  DrawTriangleLines(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
+}
 //
 // Circle
 //
