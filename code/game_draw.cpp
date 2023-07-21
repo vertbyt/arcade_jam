@@ -50,6 +50,13 @@ void draw_triangle(Vec2 v0, Vec2 v1, Vec2 v2, Vec4 color) {
   DrawTriangle(rl_vec2(v0), rl_vec2(v1), rl_vec2(v2), rl_color(color));
 }
 
+//
+// Circle
+//
+void draw_circle(Vec2 pos, f32 radius, Vec4 color) {
+  DrawCircle(pos.x, pos.y, radius, rl_color(color));
+}
+
 
 //
 // Colored and textured quad

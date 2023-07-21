@@ -30,8 +30,8 @@
 
 #define MAX_ENTITIES      256
 #define MAX_PROJECTILES   512
-#define MAX_CHAIN_CIRCLES 256
-#define MAX_SCORE_DOTS    256
+#define MAX_CHAIN_CIRCLES 512
+#define MAX_SCORE_DOTS    512
 #define MAX_EXPLOSIONS    16
 
 
@@ -59,6 +59,18 @@ b32 check_circle_vs_circle(Vec2 p0, f32 r0, Vec2 p1, f32 r1) {
 }
 
 f32 random_angle(void) { return(2.0f*Pi32*random_f32()); }
+
+Vec2 random_offscreen_pos(f32 offset) {
+ Vec2 r = random_screen_pos();
+
+  s32 side = random_range(0, 4);
+  if(side == 0) r.x = 0 - offset;
+  if(side == 1) r.x = WINDOW_WIDTH + offset;
+  if(side == 2) r.y = 0 - offset;
+  if(side == 3) r.y = WINDOW_HEIGHT + offset;
+  
+  return r;
+}
 
 // Polygon
 struct Polygon {
@@ -133,6 +145,8 @@ enum Entity_State {
   Entity_State_None,
   
   Entity_State_Initial,
+  Entity_State_Offscreen,
+  Entity_State_Emerge,
   Entity_State_Active,
   Entity_State_Targeting,
   Entity_State_Waiting,
@@ -472,6 +486,19 @@ void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
 
 void remove_explosion(Explosion* e) { e->is_active = false; }
 
+
+Player* get_player(void) {
+  Game_State* gs = get_game_state();
+  Player* r = NULL;
+  Loop(i, gs->entity_count) {
+    if(gs->entities[i].type == Entity_Type_Player) {
+      r = (Player*)&gs->entities[i];
+      break;
+    }
+  }
+  return r;
+}
+
 // collision checks agains groups of game objects
 b32 check_collision_vs_chain_circles(Vec2 pos, f32 radius) {
   b32 hit = false;
@@ -485,18 +512,6 @@ b32 check_collision_vs_chain_circles(Vec2 pos, f32 radius) {
   }
   
   return hit;
-}
-
-Player* get_player(void) {
-  Game_State* gs = get_game_state();
-  Player* r = NULL;
-  Loop(i, gs->entity_count) {
-    if(gs->entities[i].type == Entity_Type_Player) {
-      r = (Player*)&gs->entities[i];
-      break;
-    }
-  }
-  return r;
 }
 
 //
@@ -606,6 +621,7 @@ void update_laser_turret(Entity* entity) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
+  Player* player = get_player();
   Laser_Turret* turret = (Laser_Turret*)entity;
 
   turret->rotation = turret->shoot_angle;
@@ -623,7 +639,7 @@ void update_laser_turret(Entity* entity) {
       
       turret->hit_points -= 1;      
       if(turret->hit_points <= 0) {
-        spawn_chain_circle(turret->pos, BIG_CHAIN_CIRCLE);
+        spawn_explosion(turret->pos, turret->radius*2.5f, 1.0f);
         remove_entity(turret);
         return;
       }
@@ -640,19 +656,31 @@ void update_laser_turret(Entity* entity) {
     return;
   }
   
-  Player* player = NULL;
-  Loop(i, gs->entity_count) {
-    if(gs->entities[i].type == Entity_Type_Player) {
-      player = (Player*)&gs->entities[i];
-      break;
-    }
-  }
-  
   // FSM  
   switch(turret->state) {
     case Entity_State_Initial: {
+      turret->pos = random_screen_pos(120, 120);
+      turret->radius = 0.0f;
+
+      turret->color = BLUE_VEC4;
+      entity_set_hit_points(turret, LASER_TURRET_HIT_POINTS);
+      
       turret->shoot_angle = random_f32()*2.0f*Pi32;
-      entity_change_state(turret, Entity_State_Targeting);
+      entity_change_state(turret, Entity_State_Emerge);
+    }break;
+    case Entity_State_Emerge: {
+      if(entity_enter_state(turret)) turret->state_timer = timer_start(2.0f);
+      
+      f32 t = timer_procent(turret->state_timer);
+      t = lerp_f32(0.2f, 1.0f, t);
+      ease_out_quad(&t);
+      
+      turret->radius = LASER_TURRET_RADIUS*t;
+      
+      if(timer_step(&turret->state_timer, delta_time)) {
+        turret->radius = LASER_TURRET_RADIUS;
+        entity_change_state(turret, Entity_State_Targeting);
+      }
     }break;
     case Entity_State_Targeting: {
       if(entity_enter_state(turret)) {
@@ -728,7 +756,29 @@ void update_triple_gun_turret(Entity* entity) {
 
   Triple_Gun_Turret* turret = (Triple_Gun_Turret*)entity;
 
-  // @todo projectile interaction 
+  timer_step(&turret->health_bar_display_timer, delta_time);
+
+  // projectile interaction 
+  Loop(i, MAX_PROJECTILES) {
+    Projectile* p = &gs->projectiles[i];
+    if(!p->is_active) continue;
+    if(p->from_type != Entity_Type_Player) continue;
+    
+    if(check_circle_vs_circle(turret->pos, turret->radius, p->pos, p->radius)) {
+      remove_projectile(p);
+      
+      turret->hit_points -= 1;
+      
+      if(turret->hit_points <= 0) { 
+        spawn_explosion(turret->pos, turret->radius*2.5f, 1.0f);
+        remove_entity(turret);
+        return;
+      }
+      
+      turret->health_bar_display_timer = timer_start(1.25);
+      break;
+    }
+  }
   
   // chain circle interaction
   if(check_collision_vs_chain_circles(turret->pos, turret->radius)) {
@@ -741,7 +791,27 @@ void update_triple_gun_turret(Entity* entity) {
   // FSM
   switch(turret->state) {
     case Entity_State_Initial: {
-      entity_change_state(turret, Entity_State_Waiting);
+      turret->pos = random_screen_pos(120, 120);
+      turret->radius = 0.0f;
+      turret->rotation = random_angle();
+      turret->color = TRIPLE_GUN_TURRET_COLOR;
+      entity_set_hit_points(turret, LASER_TURRET_HIT_POINTS);
+      
+      entity_change_state(turret, Entity_State_Emerge);
+    }break;
+    case Entity_State_Emerge: {
+      if(entity_enter_state(turret)) turret->state_timer = timer_start(2.0f);
+      
+      f32 t = timer_procent(turret->state_timer);
+      t = lerp_f32(0.2f, 1.0f, t);
+      ease_out_quad(&t);
+      
+      turret->radius = TRIPLE_GUN_TURRET_RADIUS*t;
+      
+      if(timer_step(&turret->state_timer, delta_time)) {
+        turret->radius = TRIPLE_GUN_TURRET_RADIUS;
+        entity_change_state(turret, Entity_State_Waiting);
+      }
     }break;
     case Entity_State_Waiting: {
       if(entity_enter_state(turret)) {
@@ -753,8 +823,8 @@ void update_triple_gun_turret(Entity* entity) {
     }break;
     case Entity_State_Active: {
       if(entity_enter_state(turret)) {
-        turret->projectiles_left_to_spawn = 15;
-        turret->projectile_spawn_timer = timer_start(0.2f);
+        turret->projectiles_left_to_spawn = TRIPLE_GUN_TURRET_BULLET_COUNT;
+        turret->projectile_spawn_timer = timer_start(TRIPLE_GUN_TURRET_FIRE_RATE);
       }
       
       b32 should_spawn = false;      
@@ -764,21 +834,19 @@ void update_triple_gun_turret(Entity* entity) {
       }      
       
       if(should_spawn) {
-        f32 angle_step = Pi32/4.0f;
+        f32 angle_step = TRIPLE_GUN_TURRET_GUN_ANGLE_STEP;
         f32 angle = turret->rotation - angle_step;
         
-        f32 proj_radius = 9.0f;
-        f32 proj_move_speed = 100.0f;
         Loop(i, 3) {
           Vec2 dir = vec2(angle);
-          Vec2 pos = turret->pos + dir*(turret->radius + proj_radius);
+          Vec2 pos = turret->pos + dir*(turret->radius + TRIPLE_GUN_TURRET_BULLET_RADIUS);
           
           Projectile* p = new_projectile();
           p->pos = pos;
           p->dir = dir;
           p->rotation = angle;
-          p->move_speed = proj_move_speed;
-          p->radius = proj_radius;
+          p->move_speed = TRIPLE_GUN_TURRET_BULLET_MOVE_SPEED;
+          p->radius = TRIPLE_GUN_TURRET_BULLET_RADIUS;
           p->color = YELLOW_VEC4;
           projectile_set_parent(p, (Entity*)turret);
           
@@ -872,6 +940,21 @@ void update_chain_activator(Entity* entity) {
   // FSM
   switch(activator->state) {
     case Entity_State_Initial: {
+      activator->pos = random_offscreen_pos(CHAIN_ACTIVATOR_START_RADIUS*4);
+      f32 angle_to_center = vec2_angle(get_screen_center() - activator->pos);
+      f32 dir_angle = angle_to_center + random_f32(-1, 1)*(Pi32/6);
+      
+      activator->dir = vec2(dir_angle);
+      
+      activator->move_speed = CHAIN_ACTIVATOR_MOVE_SPEED;
+      
+      activator->start_radius = CHAIN_ACTIVATOR_START_RADIUS;
+      activator->end_radius   = CHAIN_ACTIVATOR_END_RADIUS;
+      activator->start_color  = CHAIN_ACTIVATOR_START_COLOR;
+      activator->end_color    = CHAIN_ACTIVATOR_END_COLOR;   
+      
+      activator->orbital_radius = CHAIN_ACTIVATOR_ORBITAL_RADIUS;
+      
       activator->orbital_global_rotation = random_angle();
       
       Loop(i, ArrayCount(activator->orbitals)) {
@@ -879,11 +962,30 @@ void update_chain_activator(Entity* entity) {
         activator->orbitals[i].active = true;
         activator->orbitals[i].time = 0.0f;
       }
-      
+    
       activator->color  = activator->start_color;
       activator->radius = activator->start_radius;
             
-      entity_change_state(activator, Entity_State_Active);
+      entity_change_state(activator, Entity_State_Offscreen);
+    }break;
+    case Entity_State_Offscreen: {
+      if(entity_enter_state(activator)) {
+        activator->state_timer = timer_start(5.0f);
+      }
+      
+      activator->vel = activator->move_speed*activator->dir;
+      Vec2 move_delta = activator->vel*delta_time;
+      activator->pos += move_delta;
+      
+      b32 on_screen = !is_circle_completely_offscreen(activator->pos, activator->radius);
+      if(on_screen) {
+        entity_change_state(activator, Entity_State_Active);
+        break;
+      }
+      
+      if(timer_step(&activator->state_timer, delta_time)) {
+        remove_entity(activator);
+      }      
     }break;
     case Entity_State_Active: {
       Loop(i, MAX_PROJECTILES) {
@@ -1110,34 +1212,6 @@ void spawn_goon_column() {
   spawn_goon_formation(column, 1, 5);
 }
 
-void spawn_goon_ufo() {
-
-  char* thruster = {
-    "..*.."
-    ".***."
-    "..#.."
-    ".***."
-    "..*.."
-  };
-
-  char* tank = {
-    "..*.."
-    "*****"
-    ".*#*."
-    "*****"
-    "..*.."
-  };
-
-  char* ufo = {
-    ".***."
-    "*.*.*"
-    "**#**"
-    "*.*.*"
-    ".***."
-  };
-  
-  spawn_goon_formation(ufo, 5, 5);
-}
 void update_explosion_polygon() {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
@@ -1351,9 +1425,9 @@ void update_level() {
   gs->level_time_passed += delta_time;
   f32 level_completion = gs->level_time_passed/gs->level_duration;
   
-  Vec2 goon_range      = vec2(2, 3);
+  Vec2 goon_range      = vec2(5, 7);
   Vec2 lturret_range   = vec2(12, 14);
-  Vec2 tturret_range   = vec2(18, 20);
+  Vec2 tturret_range   = vec2(1, 2);
   Vec2 activator_range = vec2(12, 15);
   
   if(level_completion > 0.975f) {
@@ -1380,45 +1454,76 @@ void update_level() {
   b32 should_spawn_activator = timer_step(&gs->spawn_timer.activator,     delta_time);
   
   if(should_spawn_goons) {
-    spawn_goon_column();
-
+    
+    // Basic goon formations
+    char* column = {
+      "*"
+      "*"
+      "#"
+      "*"
+      "*"
+    };
+    
+    char* row = {
+      "**#**"
+    };
+    
+    f32 count = random_range(2, 4);
+    Loop(i, count) {
+      if(random_chance(4)) {
+        spawn_goon_formation(row, 5, 1);
+      }else {
+        spawn_goon_formation(column, 1, 5);
+      }
+    }    
+    
+    // Heavy goon formations
+    char* thruster = {
+      "..*.."
+      ".***."
+      "..#.."
+      ".***."
+      "..*.."
+    };
+  
+    char* tank = {
+      "..*.."
+      "*****"
+      ".*#*."
+      "*****"
+      "..*.."
+    };
+  
+    char* ufo = {
+      ".***."
+      "*.*.*"
+      "**#**"
+      "*.*.*"
+      ".***."
+    };
+    
+    if(random_chance(2)) {
+      char* big_guys[] = {tank, ufo, thruster};
+      char* big_guy = big_guys[random_range(0, 3)];
+      
+      spawn_goon_formation(big_guy, 5, 5);
+    }
+  
     gs->spawn_timer.goon = timer_start(vec2_lerp_x_to_y(goon_range, random_f32()));
   }
   
   if(should_spawn_lturret) {
-    Laser_Turret* turret = (Laser_Turret*)new_entity(Entity_Type_Laser_Turret);
-    turret->pos = random_screen_pos(120, 120);
-    turret->radius = LASER_TURRET_RADIUS;
-    turret->color = BLUE_VEC4;
-    entity_set_hit_points(turret, LASER_TURRET_HIT_POINTS);
-    
+    new_entity(Entity_Type_Laser_Turret);
     gs->spawn_timer.laser_turret = timer_start(vec2_lerp_x_to_y(lturret_range, random_f32()));
   }
   
   if(should_spawn_tturret) {
-    Triple_Gun_Turret* turret = (Triple_Gun_Turret*)new_entity(Entity_Type_Triple_Gun_Turret);
-    turret->pos = random_screen_pos(120, 120);
-    turret->radius = 30.0f;
-    turret->rotation = random_angle();
-    turret->color = GREEN_VEC4;
-    entity_set_hit_points(turret, LASER_TURRET_HIT_POINTS);
-    
+    new_entity(Entity_Type_Triple_Gun_Turret);
     gs->spawn_timer.triple_turret = timer_start(vec2_lerp_x_to_y(tturret_range, random_f32()));
   }  
   
   if(should_spawn_activator) {    
-    Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
-    activator->pos = random_screen_pos(120, 120);
-    activator->move_speed = 45.0f;
-    activator->dir = vec2_normalize(get_screen_center() - activator->pos);
-    
-    activator->start_radius = 25.0f;
-    activator->end_radius   = 20.0f;
-    activator->start_color  = YELLOW_VEC4;
-    activator->end_color    = WHITE_VEC4;   
-    
-    activator->orbital_radius = 8.0f;
-    
+    new_entity(Entity_Type_Chain_Activator);
     gs->spawn_timer.activator = timer_start(vec2_lerp_x_to_y(activator_range, random_f32()));
   }
 }
@@ -1453,8 +1558,6 @@ void set_level_to_initial_state() {
   player->color = WHITE_VEC4;
   player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
   entity_set_hit_points(player, 5);
-  
-  spawn_goon_ufo();
 }
 
 
@@ -1563,22 +1666,47 @@ void draw_health_bar(Entity* the_entity) {
 void draw_laser_turret(Entity* entity) {
   Laser_Turret* turret = (Laser_Turret*)entity;
   Vec2 dim = vec2(1, 1)*turret->radius*2;
-  draw_quad(turret->pos - dim*0.5f, dim, turret->rotation, turret->color);
   
-  f32 offset_to_gun = turret->radius + LASER_TURRET_GUN_HEIGHT/2;
-  Vec2 gun_pos = turret->pos + vec2(turret->rotation)*offset_to_gun;
+  f32 radius_t = turret->radius/LASER_TURRET_RADIUS;
   Vec2 gun_dim = {LASER_TURRET_GUN_HEIGHT, LASER_TURRET_GUN_WIDTH};
+  gun_dim *= radius_t;
   
+  f32 offset_to_gun = turret->radius + gun_dim.width/2;
+  Vec2 gun_pos = turret->pos + vec2(turret->rotation)*offset_to_gun;
+
   draw_quad(gun_pos - gun_dim*0.5f, gun_dim, turret->rotation, BLACK_VEC4);
+
+  draw_quad(turret->pos - dim*0.5f, dim, turret->rotation, BLACK_VEC4);
+  
+  f32 f = 0.85f;
+  draw_quad(turret->pos - dim*0.5f*f, dim*f, turret->rotation, turret->color);
   
   b32 show_health = timer_is_active(turret->health_bar_display_timer);
   if(show_health) draw_health_bar((Entity*)turret);
 }
 
 void draw_triple_gun_turret(Entity* entity) {
+  Game_State* gs = get_game_state();
+  
   Triple_Gun_Turret* turret = (Triple_Gun_Turret*)entity;
   Vec2 dim = vec2(1, 1)*turret->radius*2;
-  draw_quad(turret->pos - dim*0.5f, dim, turret->rotation, turret->color);
+  
+  f32 radius_t = turret->radius/TRIPLE_GUN_TURRET_RADIUS;
+  Vec2 gun_dim = {TRIPLE_GUN_TURRET_GUN_HEIGHT, TRIPLE_GUN_TURRET_GUN_WIDTH};
+  gun_dim *= radius_t;
+  
+  f32 angle_step = TRIPLE_GUN_TURRET_GUN_ANGLE_STEP;
+  f32 angle = -angle_step;
+  Loop(i, 3) {
+    Vec2 dir = vec2(turret->rotation + angle);
+    Vec2 pos = turret->pos + dir*(turret->radius + gun_dim.height/2.1f);
+    draw_quad(pos - gun_dim*0.5f, gun_dim, turret->rotation + angle, BLACK_VEC4);
+    angle += angle_step;
+  }
+  draw_quad(gs->chain_activator_texture, turret->pos - dim*0.5f, dim, turret->rotation + Pi32/2, turret->color);
+  
+  b32 show_health = timer_is_active(turret->health_bar_display_timer);
+  if(show_health) draw_health_bar((Entity*)turret);
 }
 
 void draw_entities(void) {
@@ -1643,10 +1771,12 @@ void draw_projectiles(void) {
     Vec2 dim = vec2(1, 1)*p->radius*2;
     
     switch(p->from_type) {
-      case Entity_Type_Player: 
-      case Entity_Type_Triple_Gun_Turret: {
+      case Entity_Type_Player: {
         draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
       } break;
+      case Entity_Type_Triple_Gun_Turret: {
+        draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+      }break;
       case Entity_Type_Laser_Turret: {
         Vec4 color = {1,1,1,1};
         

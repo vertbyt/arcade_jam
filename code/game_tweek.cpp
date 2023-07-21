@@ -1,5 +1,18 @@
 
 //
+// Colors
+//
+Vec4 RED_VEC4    = {1, 0, 0, 1};
+Vec4 GREEN_VEC4  = {0, 1, 0, 1};
+Vec4 BLUE_VEC4   = {0, 0, 1, 1};
+Vec4 YELLOW_VEC4 = {1, 1, 0, 1};
+Vec4 PINK_VEC4   = {1, 0, 1, 1};
+
+Vec4 BLACK_VEC4 = {0, 0, 0, 1};
+Vec4 WHITE_VEC4 = {1, 1, 1, 1};
+
+
+//
 // Laser turret
 //
 #define LASER_TURRET_GUN_HEIGHT 30.0f
@@ -14,6 +27,21 @@
 #define LASER_TURRET_PROJECTILE_FADE_AFTER 4.8f
 
 //
+// Triple gun turret
+//
+#define TRIPLE_GUN_TURRET_RADIUS 30.0f
+#define TRIPLE_GUN_TURRET_COLOR  GREEN_VEC4
+
+#define TRIPLE_GUN_TURRET_BULLET_COUNT      12
+#define TRIPLE_GUN_TURRET_BULLET_RADIUS     8.0f
+#define TRIPLE_GUN_TURRET_BULLET_MOVE_SPEED 115.0f
+#define TRIPLE_GUN_TURRET_FIRE_RATE         1.0f/6.0f
+
+#define TRIPLE_GUN_TURRET_GUN_ANGLE_STEP (Pi32/3.0f)
+#define TRIPLE_GUN_TURRET_GUN_WIDTH  15
+#define TRIPLE_GUN_TURRET_GUN_HEIGHT 20
+
+//
 // Goon 
 //
 #define GOON_LEADER_COLOR  vec4(0xFF1B68E6)
@@ -23,7 +51,18 @@
 #define GOON_LEADER_RADIUS 20.0f
 #define GOON_RADIUS        15.0f
 #define GOON_PADDING       5.0f
-#define GOON_MOVE_SPEED    75.0f
+#define GOON_MOVE_SPEED    50.0f
+
+//
+// Chain activator
+//
+#define CHAIN_ACTIVATOR_START_RADIUS   25.0f
+#define CHAIN_ACTIVATOR_END_RADIUS     20.0f
+#define CHAIN_ACTIVATOR_ORBITAL_RADIUS 8.0f
+#define CHAIN_ACTIVATOR_MOVE_SPEED     45.0f
+
+#define CHAIN_ACTIVATOR_START_COLOR YELLOW_VEC4
+#define CHAIN_ACTIVATOR_END_COLOR   WHITE_VEC4
 
 //
 // Chain circle
@@ -48,14 +87,7 @@
 #define SCORE_DOT_RADIUS 6.0f
 #define SCORE_DOT_PULSE_TARGET_RADIUS 12.0f
 
-//
-// Colors
-//
-Vec4 RED_VEC4    = {1, 0, 0, 1};
-Vec4 GREEN_VEC4  = {0, 1, 0, 1};
-Vec4 BLUE_VEC4   = {0, 0, 1, 1};
-Vec4 YELLOW_VEC4 = {1, 1, 0, 1};
-Vec4 PINK_VEC4   = {1, 0, 1, 1};
 
-Vec4 BLACK_VEC4 = {0, 0, 0, 1};
-Vec4 WHITE_VEC4 = {1, 1, 1, 1};
+
+
+
