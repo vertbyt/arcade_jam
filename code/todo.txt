@@ -1,9 +1,4 @@
 
-OUT:
-- still enemy that shoots in a pattern???
-- moving enemy with a shiled that can damage the player ???
-
-
 TODO:
 
 - figure out how should the level "flow"!!!!
@@ -16,12 +11,17 @@ TODO:
   - maybe make this enemy have bullets that infect the chain circles making them
     deadly for the player to be in them or touch them.
 
+- player collider, laser bullet colider
+
 - sound:
   - player shoot, player hit, explosion, chain effects
   
 - polish:
- - make the player a butterfly
- 
+ - butterfly turning, and stretching when shooting
+ - butterfly leaves behind particles
+ - explode butter fly on death
+ - butterly bullets trial effect
+   
 - create itch page
 - publish to itch
 

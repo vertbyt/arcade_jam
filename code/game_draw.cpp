@@ -10,7 +10,6 @@ void register_draw_dim(f32 width, f32 height){
 //
 // Game Draw
 //
-
 Color rl_color(f32 r, f32 g, f32 b, f32 a) {
   Color c = {(u8)(r*255.0f), (u8)(g*255.0f), (u8)(b*255.0f), (u8)(a*255.0f)};
   return c;
@@ -60,6 +59,9 @@ void draw_circle(Vec2 pos, f32 radius, Vec4 color) {
   DrawCircle(pos.x, pos.y, radius, rl_color(color));
 }
 
+void draw_circle_outline(Vec2 pos, f32 radius, Vec4 color) {
+  DrawCircleLines(pos.x, pos.y, radius, rl_color(color));
+}
 
 //
 // Colored and textured quad

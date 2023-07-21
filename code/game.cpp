@@ -10,30 +10,6 @@
 
 #include "game_tweek.cpp"
 
-#define ASPECT_4_BY_3 1
-
-#if ASPECT_4_BY_3
-// 640×480, 800×600, 960×720, 1024×768, 1280×960
-#define WINDOW_WIDTH  1024
-#define WINDOW_HEIGHT 768
-#else
-#define WINDOW_WIDTH 1280
-#define WINDOW_HEIGHT 720
-#endif
-
-
-#define TARGET_FPS        60
-#define TARGET_DELTA_TIME (1.0f/(f32)TARGET_FPS)
-
-#define TITLE             "Arcade Jam"
-
-
-#define MAX_ENTITIES      256
-#define MAX_PROJECTILES   512
-#define MAX_CHAIN_CIRCLES 512
-#define MAX_SCORE_DOTS    512
-#define MAX_EXPLOSIONS    16
-
 
 // Utils
 b32 is_circle_completely_offscreen(Vec2 pos, f32 radius) {
@@ -190,6 +166,9 @@ struct Entity_Base {
 };
 
 struct Player : public Entity_Base {
+  f32 flap;
+  f32 target_turn_angle;
+  f32 turn_angle;
   f32 shoot_angle;
   Timer shoot_cooldown_timer;
 };
@@ -352,13 +331,8 @@ struct Game_State {
   Polygon current_explosion_frame_polygon;
   
   // Butterfly 
-  Vec2 butterfly_top_wing[5];
-  f32 top_wing_offset_angles[5];
-  
+  Vec2 butterfly_top_wing[5];  
   Vec2 butterfly_bottom_wing[5];
-  f32 bottom_wing_offset_angles[5];
-  
-  Timer wing_offset_change_timer;
   
   // assets
   Texture2D chain_circle_texture;
@@ -617,9 +591,21 @@ void update_player(Entity* entity) {
   }
 
   if(IsKeyPressed(KEY_J)) player->hit_points -= 1;
+  
+  // Flap
+  player->flap = cosf(GetTime()*18.0f)*0.075f;
+  
+  // Turning
+  if(move_dir.x == 0)   player->target_turn_angle = 0.0f;
+  if(move_dir.x > 0.0f) player->target_turn_angle = PLAYER_MAX_TURN_ANGLE;
+  if(move_dir.x < 0.0f)  player->target_turn_angle = -PLAYER_MAX_TURN_ANGLE;
+
+  f32 turn_dir = Sign(player->target_turn_angle - player->turn_angle);
+  f32 turn_delta = turn_dir*PLAYER_TURN_SPEED*delta_time;
+  player->turn_angle += turn_delta;
+  
   // Move
-  f32 move_speed = 300.0f;
-  Vec2 vel = move_dir*move_speed;
+  Vec2 vel = move_dir*PLAYER_MOVE_SPEED;
   Vec2 move_delta = vel*delta_time;
 
   player->pos += move_delta;
@@ -1537,6 +1523,11 @@ void update_level() {
   }
 }
 
+void update_butterfly_wings(void) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+}
 
 void set_level_to_initial_state() {
   Game_State* gs = get_game_state();
@@ -1563,10 +1554,9 @@ void set_level_to_initial_state() {
   
   Player* player = (Player*)new_entity(Entity_Type_Player);
   player->pos = get_screen_center();
-  player->radius = 10.0f;
-  player->color = WHITE_VEC4;
-  player->shoot_cooldown_timer = timer_start(12*TARGET_DELTA_TIME);
-  entity_set_hit_points(player, 5);
+  player->radius = PLAYER_RADIUS;
+  player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
+  entity_set_hit_points(player, PLAYER_HIT_POINTS);
 }
 
 
@@ -1577,14 +1567,15 @@ void update_game(void) {
   f64 start_time = GetTime();
   
   update_audio();
-  
+
+  update_explosion_polygon();
+  update_butterfly_wings();
   update_level();
   
   update_entities();  
   actually_remove_entities();
 
   update_projectiles();
-  update_explosion_polygon();
   update_explosions();
   update_chain_circles();
   update_score_dots();
@@ -1719,45 +1710,58 @@ void draw_triple_gun_turret(Entity* entity) {
 }
 
 
-void draw_butterfly(Vec2 pos, f32 scale) {
+void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset = 0.0f) {
   Game_State* gs = get_game_state();
   
   Vec2* top_wing = gs->butterfly_top_wing;
   Vec2* bottom_wing = gs->butterfly_bottom_wing;
+
+  Vec2 offset = {0, y_offset};
+  Vec2 top_offsets[5]    = {{0, 0}, offset, offset, offset, {0,0}};
+  Vec2 bottom_offsets[5] = {{0, 0}, {0,0}, offset, offset, offset};
   
   for(s32 i = 1; i < 5 - 1; i += 1) {
-    Vec2 v1 = pos + top_wing[0]*scale;
-    Vec2 v2 = pos + top_wing[i]*scale;
-    Vec2 v3 = pos + top_wing[i+1]*scale;
+
+    Vec2 a = top_wing[0] + top_offsets[0];
+    Vec2 b = top_wing[i] + top_offsets[i];
+    Vec2 c = top_wing[i+1] + top_offsets[i+1];
+    
+    Vec2 v1 = pos + vec2_rotate(a, rot)*scale;
+    Vec2 v2 = pos + vec2_rotate(b, rot)*scale;
+    Vec2 v3 = pos + vec2_rotate(c, rot)*scale;
 
     draw_triangle(v3, v2, v1, {1,1,1,0.5f});     
     draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
 
     // flipped on x
-    v1.x -= 2*top_wing[0].x*scale;
-    v2.x -= 2*top_wing[i].x*scale;
-    v3.x -= 2*top_wing[i+1].x*scale;
+    v1 = pos + vec2_rotate({-a.x, a.y}, rot)*scale;
+    v2 = pos + vec2_rotate({-b.x, b.y}, rot)*scale;
+    v3 = pos + vec2_rotate({-c.x, c.y}, rot)*scale;
     draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
     draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
   }
   
+  
   for(s32 i = 1; i < 5 - 1; i += 1) {
-    Vec2 v1 = pos + top_wing[0]*scale;
-    Vec2 v2 = pos + bottom_wing[i]*scale;
-    Vec2 v3 = pos + bottom_wing[i+1]*scale;
+    Vec2 a = bottom_wing[0] + bottom_offsets[0];
+    Vec2 b = bottom_wing[i] + bottom_offsets[i];
+    Vec2 c = bottom_wing[i+1] + bottom_offsets[i+1];
     
-    draw_triangle(v3, v2, v1, {1,1,1,0.5f});          
+    Vec2 v1 = pos + vec2_rotate(a, rot)*scale;
+    Vec2 v2 = pos + vec2_rotate(b, rot)*scale;
+    Vec2 v3 = pos + vec2_rotate(c, rot)*scale;
+
+    draw_triangle(v3, v2, v1, {1,1,1,0.5f});     
     draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
-    
-    // flipped on x    
-    v1.x -= 2*bottom_wing[0].x*scale;
-    v2.x -= 2*bottom_wing[i].x*scale;
-    v3.x -= 2*bottom_wing[i+1].x*scale;
+
+    // flipped on x
+    v1 = pos + vec2_rotate({-a.x, a.y}, rot)*scale;
+    v2 = pos + vec2_rotate({-b.x, b.y}, rot)*scale;
+    v3 = pos + vec2_rotate({-c.x, c.y}, rot)*scale;
     draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
     draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
   }
 }
-
 
 void draw_entities(void) {
   Game_State* gs = get_game_state();
@@ -1768,9 +1772,14 @@ void draw_entities(void) {
   
     switch(entity->type) {
       case Entity_Type_Player: {
-        Vec2 pos = entity->pos;
-        Vec2 dim = vec2(2,2)*entity->radius; 
-        draw_butterfly(pos, 6.0f*entity->radius);
+        Player* player = (Player*)entity;
+        Vec2 pos = player->pos;
+        Vec2 dim = vec2(2,2)*player->radius; 
+        
+        draw_butterfly(pos, 5.0f*player->radius, player->turn_angle, player->flap);
+        
+        //draw_circle_outline(pos, entity->radius, RED_VEC4);
+        
         /*
         f32 thickness = 3;
         draw_quad        (pos - dim*0.5f, dim, vec4_fade_alpha(WHITE_VEC4, 0.45f));
@@ -1845,6 +1854,7 @@ void draw_projectiles(void) {
         }
         
         draw_quad(gs->laser_bullet_texture, p->pos - dim*0.5f, dim, p->rotation, color);
+        //draw_circle_outline(p->pos, p->radius, RED_VEC4);
       }break;
     }
   }
@@ -1920,7 +1930,6 @@ void draw_score_dots(void) {
     if(dot->is_special) {
       Vec2 pulse_dim = vec2(2,2)*dot->pulse_radius;
       draw_quad_outline(dot->pos - pulse_dim*0.5f, pulse_dim, 2.0f, inner_color);
-      //draw_quad(gs->chain_circle_texture, dot->pos - pulse_dim*0.5f, pulse_dim, inner_color);
     }
   }
 }
@@ -1991,8 +2000,6 @@ void draw_game(void) {
   draw_explosions();
   draw_level_completion_bar();
   draw_score_and_life();
-  
-  draw_butterfly(get_screen_center(), 100.0f);
   
   f64 end_time = GetTime();
   gs->draw_time = end_time - start_time;
@@ -2078,7 +2085,7 @@ void do_menu_screen(void) {
   draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
   draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
   
-  draw_butterfly(get_screen_center(), 400.0f);
+  draw_butterfly(get_screen_center(), 100.0f, 0.0f);
   EndDrawing();
 }
 
@@ -2244,7 +2251,7 @@ void init_game(void) {
   bottom_wing[2] = {-0.2f, 0.3f};
   bottom_wing[3] = {-0.4f, 0.2f};
   bottom_wing[4] = {-0.35f, 0.0f};
-
+  
   // so that game_draw.cpp has the window dim
   register_draw_dim(WINDOW_WIDTH, WINDOW_HEIGHT);
   
