@@ -2,20 +2,21 @@
 TODO:
 
 - figure out how should the level "flow"!!!!
-  - enemy spawn freqency
-  - difficulty as game progresses
-  - turret aiming???
-  - chain activator movement control.
   
 - enemy that moves and shoots bullets in N-directions
   - maybe make this enemy have bullets that infect the chain circles making them
     deadly for the player to be in them or touch them.
 
+- credit screen
+
 - polish:
+ - chain circle expand on shoot
+ - laser lines
+ - triple gun turret telegraphing
  - maybe better sound effects
  - explode butter fly on death
  - butterly bullets trial effect
-   
+ 
 - create itch page
 - publish to itch
 

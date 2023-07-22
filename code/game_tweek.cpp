@@ -49,7 +49,7 @@ Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 
 #define PLAYER_HIT_POINTS     5
 #define PLAYER_MAX_TURN_ANGLE (Pi32/8.0f)
-#define PLAYER_TURN_SPEED     1.5f
+#define PLAYER_TURN_SPEED     1.75f
 
 //
 // Laser turret

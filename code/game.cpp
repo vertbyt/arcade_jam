@@ -951,7 +951,13 @@ void update_triple_gun_turret(Entity* entity) {
       }
       
       if(turret->projectiles_left_to_spawn <= 0) {
-        turret->rotation += Pi32/4;
+        Player* player = get_player();
+
+        f32 rotation_dir = -1;
+        f32 angle_to_player = vec2_angle(player->pos - turret->pos);
+        if(Abs(angle_to_player - turret->rotation) > Pi32) rotation_dir = 1;
+        
+        turret->rotation += rotation_dir*(Pi32/4);
         entity_change_state(turret, Entity_State_Waiting);
       }
     }break;
@@ -2075,7 +2081,6 @@ void draw_score_and_life(void) {
   
   char* life_text = (char*)TextFormat("Life: %d", player->hit_points);
   draw_text(gs->small_font, life_text, {10, 5 + 48/2 - 24/2}, {1,1,1,0.75f});
-  
 }
 
 void draw_game(void) {
@@ -2314,7 +2319,7 @@ void init_game(void) {
   game_state->laser_bullet_texture    = texture_asset_load("laser_bullet.png");
   
   game_state->songs[0] = music_asset_load("the_rush.mp3");
-  game_state->songs[1] = music_asset_load("the_treasure.ogg");
+  game_state->songs[1] = music_asset_load("the_treasure.mp3");
   
   game_state->player_shoot_sound = sound_asset_load("player_shoot.wav");
   game_state->explosion_sound    = sound_asset_load("explosion.wav");
