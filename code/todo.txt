@@ -10,9 +10,6 @@ TODO:
 - credit screen
 
 - polish:
- - chain circle expand on shoot
- - laser lines
- - triple gun turret telegraphing
  - maybe better sound effects
  - explode butter fly on death
  - butterly bullets trial effect
