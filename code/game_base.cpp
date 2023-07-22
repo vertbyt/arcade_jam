@@ -54,6 +54,9 @@ typedef s32 b32;
 #define Abs(v)  ((v) >= 0 ? (v) : (-(v)))
 #define Sign(v) ((v) > 0 ? 1 : (v) < 0 ? -1 : 0)
 
+#define Clamp(a, min, max) (((a) < (min)) ? (min) : ((a) > (max)) ? (max) : (a))
+#define Wrap(a, min, max)  (((a) < (min)) ? (max) : ((a) > (max)) ? (min) : (a))
+
 #define Ceil(v)   ((s32)((v) + 0.9999))
 #define Floor(v)  ((s32)(v))
 

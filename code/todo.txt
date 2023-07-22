@@ -3,12 +3,6 @@ TODO:
 
 - figure out how should the level "flow"!!!!
   
-- enemy that moves and shoots bullets in N-directions
-  - maybe make this enemy have bullets that infect the chain circles making them
-    deadly for the player to be in them or touch them.
-
-- credit screen
-
 - polish:
  - maybe better sound effects
  - explode butter fly on death
@@ -18,9 +12,5 @@ TODO:
 - publish to itch
 
 Assets:
-https://opengameart.org/content/raining-bits
-https://opengameart.org/users/haeldb
-https://opengameart.org/content/life-corrupted-binary
-https://opengameart.org/content/space-dimensions-8bitretro-version
-https://opengameart.org/content/the-treasure-nes-version
-https://opengameart.org/users/snabisch
+https://opengameart.org/content/the-treasure-nes-version -> Snabisch
+https://opengameart.org/content/the-rush -> tebruno99
