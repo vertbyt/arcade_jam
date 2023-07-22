@@ -104,6 +104,13 @@ Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 #define CHAIN_ACTIVATOR_END_COLOR   WHITE_VEC4
 
 //
+// Infector
+//
+#define INFECTOR_RADIUS      20.0f
+#define INFECTOR_MOVE_SPEED  40.0f
+#define INFECTOR_HIT_POITNS  25
+
+//
 // Chain circle
 //
 #define SMALL_CHAIN_CIRCLE  40.0f 
@@ -113,6 +120,8 @@ Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 #define CHAIN_CIRCLE_EMERGE_TIME        0.1f
 #define MAX_CHAIN_CIRCLE_LIFE_TIME      2.0f
 #define CHAIN_CIRCLE_LIFE_PROLONG_TIME  0.4f
+#define CHAIN_CIRCLE_INFECTION_TIME     0.35f
+
 
 //
 // Score dot

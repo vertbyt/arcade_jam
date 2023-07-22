@@ -212,6 +212,10 @@ struct Goon : public Entity_Base {
   s32 no_data;
 };
 
+struct Infector : public Entity_Base {
+  f32 wobble;
+};
+
 struct Entity {
   union {
     Entity_Base       base;
@@ -265,6 +269,10 @@ struct Chain_Circle {
   f32 emerge_time;
   f32 life_time;
   f32 life_prolong_time;
+  
+  b32 is_infected;
+  Timer infection_timer;
+  f32 infection;
   
   b32 is_active;
 };
@@ -330,7 +338,7 @@ struct Game_State {
   s32 score;
   
   struct {
-    Timer goon, laser_turret, triple_turret, activator;
+    Timer goon, laser_turret, triple_turret, activator, infector;
   } spawn_timer;
   b32 are_spawn_timers_init;
   
@@ -437,7 +445,7 @@ void projectile_set_life_time(Projectile* p, f32 life_time) {
   p->life_timer = timer_start(life_time);
 }
 
-void spawn_chain_circle(Vec2 pos, f32 radius) {
+Chain_Circle* spawn_chain_circle(Vec2 pos, f32 radius) {
   Game_State* gs = get_game_state();
   
   Chain_Circle* c = &gs->chain_circles[gs->next_chain_circle_index];
@@ -448,6 +456,22 @@ void spawn_chain_circle(Vec2 pos, f32 radius) {
   
   gs->next_chain_circle_index += 1;
   gs->next_chain_circle_index %= MAX_CHAIN_CIRCLES;
+  
+  return c;
+}
+
+
+void infect_chain_circle(Chain_Circle* c) {
+  if(!c->is_infected) {
+    c->is_infected = true;
+    c->infection = 0.0f;
+    c->infection_timer = timer_start(CHAIN_CIRCLE_INFECTION_TIME);
+  }
+}
+
+void spawn_infected_chain_circle(Vec2 pos, f32 radius) {
+  Chain_Circle* c = spawn_chain_circle(pos, radius);
+  infect_chain_circle(c);
 }
 
 void remove_chain_circle(Chain_Circle* c) { c->is_active = false; } 
@@ -1188,6 +1212,109 @@ void update_chain_activator(Entity* entity) {
   }
 }
 
+void update_infector(Entity* entity) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Infector* infector = (Infector*)entity;
+  
+  
+  timer_step(&infector->health_bar_display_timer, delta_time);
+  
+  // projectile interaction 
+  Loop(i, MAX_PROJECTILES) {
+    Projectile* p = &gs->projectiles[i];
+    if(!p->is_active) continue;
+    if(p->from_type != Entity_Type_Player) continue;
+    
+    if(check_circle_vs_circle(infector->pos, infector->radius, p->pos, p->radius)) {
+      remove_projectile(p);
+      
+      infector->hit_points -= 1;
+      
+      if(infector->hit_points <= 0) { 
+        spawn_explosion(infector->pos, infector->radius*2.5f, 1.0f);
+        remove_entity(infector);
+        return;
+      }
+      
+      infector->health_bar_display_timer = timer_start(1.25);
+      break;
+    }
+  }
+  
+  // chain circle interaction
+  if(check_collision_vs_chain_circles(infector->pos, infector->radius)) {
+    PlaySound(gs->explosion_sound);
+    spawn_infected_chain_circle(infector->pos, 80.0f);
+    spawn_score_dot(infector->pos, false);
+    remove_entity(infector);
+    return;
+  }
+   
+   
+  // FSM
+  switch(infector->state) {
+    case Entity_State_Initial: {
+      infector->pos = random_offscreen_pos(INFECTOR_RADIUS*4);
+      
+      f32 angle_to_center = vec2_angle(get_screen_center() - infector->pos);
+      f32 dir_angle = angle_to_center + random_f32(-1, 1)*(Pi32/6);
+      infector->dir = vec2(dir_angle);
+      
+      infector->radius = INFECTOR_RADIUS;
+      infector->move_speed = INFECTOR_MOVE_SPEED;
+      entity_set_hit_points(infector, INFECTOR_HIT_POITNS);
+      
+      entity_change_state(infector, Entity_State_Waiting);
+    }break;
+    case Entity_State_Waiting: {
+      if(entity_enter_state(infector)) {
+        infector->state_timer = timer_start(6.0f);
+      }
+
+      // Move
+      Vec2 move_delta = infector->dir*infector->move_speed*delta_time;
+      infector->pos += move_delta;
+      
+      if(timer_step(&infector->state_timer, delta_time)) {
+        entity_change_state(infector, Entity_State_Telegraphing);
+      }
+    }break;
+    case Entity_State_Telegraphing: {
+      if(entity_enter_state(infector)) {
+        infector->state_timer = timer_start(2.0f);
+      }
+      
+      f32 x = 2*Pi32*timer_procent(infector->state_timer);
+      f32 t = (cosf(x*8.0f + Pi32) + 1)/2.0f;
+      infector->wobble = t;
+      
+      if(timer_step(&infector->state_timer, delta_time)) {
+      
+        f32 bullet_count = 6;
+        f32 angle_step = (2*Pi32)/bullet_count;
+        f32 angle = 0.0f;
+        Loop(i, bullet_count) {
+          Projectile* p = new_projectile();
+          p->pos = infector->pos + vec2(angle)*infector->radius*0.5f;
+          p->radius = 8.0f;
+          p->move_speed = 200.0f;
+          p->dir = vec2(angle);
+          p->rotation = angle;
+          p->color = RED_VEC4;
+          projectile_set_parent(p, (Entity*)infector);
+          
+          angle += angle_step;
+        }
+        
+        entity_change_state(infector, Entity_State_Waiting);
+      }
+    }break;
+  }
+}
+
+
 void update_projectiles(void) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
@@ -1196,25 +1323,37 @@ void update_projectiles(void) {
     Projectile* p = &gs->projectiles[i];
     if(!p->is_active) continue;
   
-    b32 is_chain_bullet = (p->from_type == Entity_Type_Laser_Turret ||
-                           p->from_type == Entity_Type_Triple_Gun_Turret);
-    if(is_chain_bullet) {
-      b32 should_remove = false;
-      Loop(i, MAX_CHAIN_CIRCLES) {
-        Chain_Circle* c = &gs->chain_circles[i];
-        if(!c->is_active) continue;
-        
-        if(check_circle_vs_circle(p->pos, p->radius, c->pos, c->radius)) {
-          spawn_chain_circle(p->pos, 25.0f);
-          spawn_score_dot(p->pos, true);
-          should_remove = true;
-          break;
-        }
-      }
+                           
+    b32 got_hit = false;
+    Chain_Circle* hit_circle = NULL;
+    Loop(i, MAX_CHAIN_CIRCLES) {
+      Chain_Circle* c = &gs->chain_circles[i];
+      if(!c->is_active) continue;
       
-      if(should_remove) remove_projectile(p);
+      if(check_circle_vs_circle(p->pos, p->radius, c->pos, c->radius)) {
+        got_hit = true;
+        hit_circle = c;    
+        break;
+      }
     }
-    
+  
+    if(got_hit) {
+      b32 is_chain_bullet = (p->from_type == Entity_Type_Laser_Turret ||
+                             p->from_type == Entity_Type_Triple_Gun_Turret);  
+                           
+      if(is_chain_bullet) {
+        spawn_chain_circle(p->pos, 25.0f);
+        spawn_score_dot(p->pos, true);
+        remove_projectile(p);
+        continue;
+      }
+      else if(p->from_type == Entity_Type_Infector) {
+        infect_chain_circle(hit_circle);
+        remove_projectile(p);
+        continue;
+      }
+    }
+        
     Vec2 vel = p->dir*p->move_speed;
     Vec2 move_delta = vel*delta_time;
     p->pos += move_delta;
@@ -1413,6 +1552,24 @@ void update_chain_circles() {
       }
     }
     
+    if(c->is_infected) {
+      timer_step(&c->infection_timer, delta_time);
+      c->infection = timer_procent(c->infection_timer);
+      
+      if(c->infection == 1.0f) {
+        Loop(j, MAX_CHAIN_CIRCLES) {
+          Chain_Circle* cc = &gs->chain_circles[j];
+          if(j == i) continue;
+          if(!cc->is_active) continue;
+          if(cc->is_infected) continue;
+          
+          if(check_circle_vs_circle(c->pos, c->radius*c->infection, cc->pos, cc->radius)) {
+            infect_chain_circle(cc);
+          }
+        }
+      }
+    }
+    
     f32 life_advance = delta_time;
     if(c->life_prolong_time > 0.0f) {
       c->life_prolong_time -= delta_time;
@@ -1461,6 +1618,7 @@ void update_entities(void) {
       case Entity_Type_Triple_Gun_Turret: { update_triple_gun_turret(entity); } break;
       case Entity_Type_Goon:              { update_goon(entity);              } break;
       case Entity_Type_Chain_Activator:   { update_chain_activator(entity);   } break;
+      case Entity_Type_Infector:          { update_infector(entity);          } break;
     }
   }
 }
@@ -1541,17 +1699,20 @@ void update_level() {
   Vec2 lturret_time_range   = {};
   Vec2 tturret_time_range   = {};
   Vec2 activator_time_range = {};
+  Vec2 infector_time_range  = {};
   
   b32 allow_goons = false;
   b32 allow_lturret = false;
   b32 allow_tturret = false;
   b32 allow_activator = false;
+  b32 allow_infector = false;
 
   if(level_completion > 0.975f) {
     return;
   }
   else if(level_completion > 0.75f) {
     allow_goons = true; allow_activator = true; allow_lturret = true; allow_tturret = true;
+    allow_infector = true;
     
     goon_time_range  = {5, 7};
     goon_count_range = {2, 4};
@@ -1559,9 +1720,11 @@ void update_level() {
     lturret_time_range   = {12, 15};
     tturret_time_range   = {12, 15};
     activator_time_range = {12, 15};
+    infector_time_range  = {16, 20};
   }
   else if(level_completion > 0.5f) {
     allow_goons = true; allow_activator = true; allow_lturret = true; allow_tturret = true;
+    allow_infector = true;
     
     goon_time_range  = {5, 7};
     goon_count_range = {2, 4};
@@ -1569,6 +1732,8 @@ void update_level() {
     lturret_time_range   = {12, 15};
     tturret_time_range   = {12, 15};
     activator_time_range = {12, 15};
+    infector_time_range  = {18, 24};
+
   }
   else if(level_completion > 0.25f) {
     allow_goons = true; allow_activator = true; allow_lturret = true; allow_tturret = true;
@@ -1603,6 +1768,8 @@ void update_level() {
     gs->spawn_timer.laser_turret  = timer_start(vec2_lerp_x_to_y(lturret_time_range,   random_f32()));
     gs->spawn_timer.triple_turret = timer_start(vec2_lerp_x_to_y(tturret_time_range,   random_f32()));
     gs->spawn_timer.activator     = timer_start(vec2_lerp_x_to_y(activator_time_range, random_f32()));
+    gs->spawn_timer.infector      = timer_start(vec2_lerp_x_to_y(infector_time_range, random_f32()));
+
     gs->are_spawn_timers_init     = true;
   }
 
@@ -1610,6 +1777,7 @@ void update_level() {
   b32 should_spawn_lturret   = false;
   b32 should_spawn_tturret   = false;
   b32 should_spawn_activator = false;
+  b32 should_spawn_infector  = false;
   
   if(timer_step(&gs->spawn_timer.goon, delta_time)) {
     should_spawn_goons = allow_goons;
@@ -1627,7 +1795,10 @@ void update_level() {
     should_spawn_activator = allow_activator;
     gs->spawn_timer.activator = timer_start(vec2_lerp_x_to_y(activator_time_range, random_f32()));
   }
-  
+  if(timer_step(&gs->spawn_timer.infector, delta_time)) {
+    should_spawn_infector = allow_infector;
+    gs->spawn_timer.infector = timer_start(vec2_lerp_x_to_y(infector_time_range, random_f32()));
+  }
     
   if(should_spawn_goons) {
     // Basic goon formations
@@ -1726,8 +1897,9 @@ void set_level_to_initial_state() {
   player->radius = PLAYER_RADIUS;
   player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
   entity_set_hit_points(player, PLAYER_HIT_POINTS);
+  
+  new_entity(Entity_Type_Infector);
 }
-
 
 void update_game(void) {
   Game_State* gs = get_game_state();
@@ -1820,7 +1992,7 @@ void draw_health_bar(Entity* the_entity) {
   
   Vec2 top_left = entity->pos - vec2(1,1)*entity->radius;
   
-  f32 hp_bar_h   = 7;
+  f32 hp_bar_h   = 10;
   f32 hp_bar_pad = 4;
   
   f32 life = (f32)entity->hit_points/(f32)entity->initial_hit_points;
@@ -1830,7 +2002,9 @@ void draw_health_bar(Entity* the_entity) {
   Vec2 hp_bar_pos = top_left - vec2(0, hp_bar_h + hp_bar_pad);
   
   draw_quad(hp_bar_pos, hp_bar_dim, RED_VEC4);
+  draw_quad_outline(hp_bar_pos, hp_bar_dim, 2.0f, BLACK_VEC4);
 }
+
 
 void draw_laser_turret(Entity* entity) {
   Laser_Turret* turret = (Laser_Turret*)entity;
@@ -1938,6 +2112,34 @@ void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset, Vec4 color) {
   }
 }
 
+void draw_infector_shape(Vec2 pos, f32 radius, Vec4 color = RED_VEC4, Vec4 outline_color = BLACK_VEC4) {
+  Vec2 dim = vec2(2,2)*radius;
+  Vec2 outline_dim = dim + vec2(4,4);
+  
+  f32 angle_step = (2*Pi32)/3;
+  f32 angle = 0.0f;
+  Loop(i, 3) {
+    draw_quad(pos - outline_dim*0.5f, outline_dim, angle, outline_color);
+    angle += angle_step;
+  }
+  
+  angle = 0.0f;
+  Loop(i, 3) {
+    draw_quad(pos - dim*0.5f, dim, angle, color);
+    angle += angle_step;
+  }
+}
+
+void draw_infector(Entity* entity) {
+  Infector* infector = (Infector*)entity;
+  f32 scale = infector->radius + infector->wobble*8.0f;
+  draw_infector_shape(infector->pos, scale);
+  draw_infector_shape(infector->pos, scale*0.65f, vec4(0xffff8519));
+  
+  b32 show_health = timer_is_active(infector->health_bar_display_timer);
+  if(show_health) draw_health_bar((Entity*)infector);
+}
+
 void draw_entities(void) {
   Game_State* gs = get_game_state();
 
@@ -1972,6 +2174,7 @@ void draw_entities(void) {
       }break;
       case Entity_Type_Laser_Turret:      { draw_laser_turret(the_entity);      }break;
       case Entity_Type_Triple_Gun_Turret: { draw_triple_gun_turret(the_entity); }break;
+      case Entity_Type_Infector:          { draw_infector(the_entity);          }break;
       case Entity_Type_Chain_Activator: {
         Chain_Activator* activator = (Chain_Activator*)entity;
         
@@ -2012,6 +2215,10 @@ void draw_projectiles(void) {
       case Entity_Type_Triple_Gun_Turret: {
         draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
       }break;
+      case Entity_Type_Infector: {
+        draw_infector_shape(p->pos, p->radius);
+        draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+      }break;
       case Entity_Type_Laser_Turret: {
         Vec4 color = {1,1,1,1};
         
@@ -2035,10 +2242,10 @@ void draw_projectiles(void) {
 
 
 void draw_chain_circles(void) {
-  Game_State* game_state = get_game_state();
+  Game_State* gs = get_game_state();
 
   Loop(i, MAX_CHAIN_CIRCLES){
-    Chain_Circle* c = &game_state->chain_circles[i];
+    Chain_Circle* c = &gs->chain_circles[i];
     if(!c->is_active) continue;
     
     Vec2 dim = vec2(1,1)*2*c->radius;
@@ -2046,7 +2253,7 @@ void draw_chain_circles(void) {
   
     Vec4 color = WHITE_VEC4;
     if(c->life_prolong_time > 0.0f) color = YELLOW_VEC4;
-    draw_quad(game_state->chain_circle_texture, pos, dim, color);
+    draw_quad(gs->chain_circle_texture, pos, dim, color);
   
     f32 t = Max(c->life_time,0.0f)/MAX_CHAIN_CIRCLE_LIFE_TIME;
   
@@ -2054,7 +2261,13 @@ void draw_chain_circles(void) {
   
     Vec2 indicator_dim = dim*t*0.7f;
     Vec2 indicator_pos = c->pos - indicator_dim*0.5f;
-    draw_quad(game_state->chain_circle_texture, indicator_pos, indicator_dim, vec4_fade_alpha(color, 0.25f));
+    draw_quad(gs->chain_circle_texture, indicator_pos, indicator_dim, vec4_fade_alpha(color, 0.25f));
+    
+    if(c->is_infected) {
+      Vec2 infection_dim = vec2(2,2)*c->radius*c->infection;
+      Vec2 infection_pos = c->pos - infection_dim*0.5f;
+      draw_quad(gs->chain_circle_texture, infection_pos, infection_dim, vec4_fade_alpha(RED_VEC4, 0.85f));
+    }    
   }
 }
 
