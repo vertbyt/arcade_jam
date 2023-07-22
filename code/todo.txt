@@ -11,10 +11,8 @@ TODO:
   - maybe make this enemy have bullets that infect the chain circles making them
     deadly for the player to be in them or touch them.
 
-- sound:
-  - player shoot, player hit, explosion, chain effects
-  
 - polish:
+ - maybe better sound effects
  - explode butter fly on death
  - butterly bullets trial effect
    

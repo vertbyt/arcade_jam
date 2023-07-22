@@ -175,6 +175,8 @@ struct Player : public Entity_Base {
   f32 shoot_indicator;
   Timer shoot_indicator_timer;
   
+  f32 score_sound_delay_time;
+  
   f32 target_turn_angle;
   f32 turn_angle;
   f32 shoot_angle;
@@ -348,6 +350,12 @@ struct Game_State {
   Texture2D laser_bullet_texture;
   Font small_font, medium_font, big_font;
   
+  Sound player_shoot_sound;
+  Sound explosion_sound;
+  Sound laser_shot_sound;
+  Sound score_pickup_sound;
+  Sound player_hit_sound;
+  
   Music songs[2];
   s32 song_index;
   Timer song_timer;
@@ -473,6 +481,8 @@ void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
   
   gs->next_explosion_index += 1;
   gs->next_explosion_index %= MAX_EXPLOSIONS;
+  
+  PlaySound(gs->explosion_sound);
 }
 
 void remove_explosion(Explosion* e) { e->is_active = false; }
@@ -567,6 +577,23 @@ void update_player(Entity* entity) {
   Player* player = (Player*)entity;
   f32 delta_time = GetFrameTime();
   
+  player->score_sound_delay_time += delta_time;
+  Loop(i, MAX_SCORE_DOTS) {
+    Score_Dot* dot = &gs->score_dots[i];
+    if(!dot->is_active) continue;
+    
+    if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
+      s32 value = dot->is_special ? 5 : 1;
+      gs->score += value;
+      remove_score_dot(dot);
+      
+      if(player->score_sound_delay_time > 0.1f) {
+        PlaySound(gs->score_pickup_sound);    
+        player->score_sound_delay_time = 0.0f;
+      }
+    }
+  }
+  
   timer_step(&player->wobble_timer, delta_time);  
   b32 is_wobbling = timer_is_active(player->wobble_timer);
   if(!is_wobbling) {
@@ -594,8 +621,10 @@ void update_player(Entity* entity) {
     }
     
     if(got_hit) {
+      PlaySound(gs->player_hit_sound);
       player->wobble_timer = timer_start(2.5f);
       is_wobbling = true;
+      player->hit_points -= 1;
     }
   }
   
@@ -629,6 +658,8 @@ void update_player(Entity* entity) {
     
     timer_reset(&player->shoot_cooldown_timer);
     player->shoot_indicator_timer = timer_start(0.25f);
+    
+    PlaySound(gs->player_shoot_sound);
   }
 
   // Expand a bit when shooting
@@ -709,6 +740,7 @@ void update_laser_turret(Entity* entity) {
   
   // chain circle interaction
   if(check_collision_vs_chain_circles(turret->pos, turret->radius)) {
+    PlaySound(gs->explosion_sound);
     spawn_chain_circle(turret->pos, BIG_CHAIN_CIRCLE);
     spawn_score_dot(turret->pos, false);
     remove_entity(turret);
@@ -804,6 +836,8 @@ void update_laser_turret(Entity* entity) {
         }
         
         entity_change_state(turret, Entity_State_Targeting);
+        
+        PlaySound(gs->laser_shot_sound);
       }
     }break;
   }
@@ -841,6 +875,7 @@ void update_triple_gun_turret(Entity* entity) {
   
   // chain circle interaction
   if(check_collision_vs_chain_circles(turret->pos, turret->radius)) {
+    PlaySound(gs->explosion_sound);
     spawn_chain_circle(turret->pos, BIG_CHAIN_CIRCLE);
     spawn_score_dot(turret->pos, false);
     remove_entity(turret);
@@ -978,6 +1013,7 @@ void update_goon(Entity* entity) {
       
       // chain circle interaction      
       if(check_collision_vs_chain_circles(goon->pos, goon->radius)) {
+        PlaySound(gs->explosion_sound);
         spawn_chain_circle(goon->pos, SMALL_CHAIN_CIRCLE);
         spawn_score_dot(goon->pos, false);
         remove_entity(goon);
@@ -1110,6 +1146,8 @@ void update_chain_activator(Entity* entity) {
       activator->color  = vec4_lerp(activator->start_color, activator->end_color, lerp_t);
 
       if(timer_step(&activator->state_timer, delta_time)) {
+        PlaySound(gs->explosion_sound);
+
         spawn_chain_circle(activator->pos, MEDIUM_CHAIN_CIRCLE);        
         remove_entity(activator);
       }
@@ -1361,26 +1399,11 @@ void update_chain_circles() {
 void update_score_dots() {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
-    
-  Player* player = NULL;
-  Loop(i, gs->entity_count) {
-    if(gs->entities[i].type == Entity_Type_Player) {
-      player = (Player*)&gs->entities[i];
-      break;
-    }
-  }
   
   Loop(i, MAX_SCORE_DOTS) {
     Score_Dot* dot = &gs->score_dots[i];
     if(!dot->is_active) continue;
-    
-    if(check_circle_vs_circle(dot->pos, SCORE_DOT_RADIUS, player->pos, player->radius)) {  
-      s32 value = dot->is_special ? 5 : 1;
-      gs->score += value;
-      remove_score_dot(dot);
-      continue;
-    }
-    
+     
     f32 pulse_target_time = 1.0f/SCORE_DOT_PULSE_FREQ;
     dot->pulse_time += delta_time;
     if(dot->pulse_time > pulse_target_time) {
@@ -1485,8 +1508,8 @@ void update_level() {
   f32 level_completion = gs->level_time_passed/gs->level_duration;
   
   Vec2 goon_range      = vec2(5, 7);
-  Vec2 lturret_range   = vec2(12, 14);
-  Vec2 tturret_range   = vec2(1, 2);
+  Vec2 lturret_range   = vec2(12, 15);
+  Vec2 tturret_range   = vec2(12, 15);
   Vec2 activator_range = vec2(12, 15);
   
   if(level_completion > 0.975f) {
@@ -1605,7 +1628,7 @@ void set_level_to_initial_state() {
   Loop(i, MAX_SCORE_DOTS)    gs->score_dots[i].is_active    = false;
   
   gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]);
-  gs->level_time_passed = gs->level_duration*0.9f;
+  gs->level_time_passed = 0.0f;
 
   gs->song_index = -1;
   
@@ -2290,8 +2313,14 @@ void init_game(void) {
   game_state->chain_activator_texture = texture_asset_load("chain_activator.png");
   game_state->laser_bullet_texture    = texture_asset_load("laser_bullet.png");
   
-  game_state->songs[0] = music_asset_load("the_treasure.mp3");
-  game_state->songs[1] = music_asset_load("raining_bits.ogg");
+  game_state->songs[0] = music_asset_load("the_rush.mp3");
+  game_state->songs[1] = music_asset_load("the_treasure.ogg");
+  
+  game_state->player_shoot_sound = sound_asset_load("player_shoot.wav");
+  game_state->explosion_sound    = sound_asset_load("explosion.wav");
+  game_state->laser_shot_sound   = sound_asset_load("laser_shot.wav");
+  game_state->score_pickup_sound = sound_asset_load("score_pickup.wav");
+  game_state->player_hit_sound   = sound_asset_load("player_hit.wav");
   
   game_state->small_font  = font_asset_load("roboto.ttf", 24);
   game_state->medium_font = font_asset_load("roboto.ttf", 48); 

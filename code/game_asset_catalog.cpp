@@ -94,3 +94,11 @@ Music music_asset_load(char* file_name) {
   
   return r;
 }
+
+Sound sound_asset_load(char* file_name) {
+  Sound r = {};
+  char path[128];
+  if(asset_catalog_find(file_name, path)) r = LoadSound(path);
+  
+  return r;
+}
