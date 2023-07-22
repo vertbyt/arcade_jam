@@ -167,6 +167,14 @@ struct Entity_Base {
 
 struct Player : public Entity_Base {
   f32 flap;
+  
+  f32 wobble;
+  f32 wobble_scale;
+  Timer wobble_timer;
+  
+  f32 shoot_indicator;
+  Timer shoot_indicator_timer;
+  
   f32 target_turn_angle;
   f32 turn_angle;
   f32 shoot_angle;
@@ -555,9 +563,41 @@ Vec2 player_process_input_lhs(void) {
 }
 
 void update_player(Entity* entity) {
+  Game_State* gs = get_game_state();
   Player* player = (Player*)entity;
-  
   f32 delta_time = GetFrameTime();
+  
+  timer_step(&player->wobble_timer, delta_time);  
+  b32 is_wobbling = timer_is_active(player->wobble_timer);
+  if(!is_wobbling) {
+    b32 got_hit = false;
+    Loop(i, gs->entity_count) {
+      Entity_Base* e = (Entity_Base*)&gs->entities[i];
+      if(!e->is_active) continue;
+      if(e->type == Entity_Type_Player) continue;
+      
+      if(check_circle_vs_circle(player->pos, player->radius, e->pos, e->radius)) {
+        got_hit = true;
+        break;
+      }
+    }
+    
+    Loop(i, MAX_PROJECTILES) {
+      Projectile* p = &gs->projectiles[i];
+      if(!p->is_active) continue;
+      if(p->from_type == Entity_Type_Player) continue;
+      
+      if(check_circle_vs_circle(player->pos, player->radius, p->pos, p->radius)) {
+        got_hit = true;
+        break;
+      }
+    }
+    
+    if(got_hit) {
+      player->wobble_timer = timer_start(2.5f);
+      is_wobbling = true;
+    }
+  }
   
   Vec2 (*process_shoot_input) (void);
   Vec2 (*process_move_input)  (void);
@@ -588,12 +628,36 @@ void update_player(Entity* entity) {
     projectile_set_parent(p, (Entity*)player);
     
     timer_reset(&player->shoot_cooldown_timer);
+    player->shoot_indicator_timer = timer_start(0.25f);
   }
 
-  if(IsKeyPressed(KEY_J)) player->hit_points -= 1;
+  // Expand a bit when shooting
+  b32 is_shoot_indicator_active = timer_is_active(player->shoot_indicator_timer);
+  if(timer_step(&player->shoot_indicator_timer, delta_time)) {
+    player->shoot_indicator = 0.0f;
+  }
+  else {
+    player->flap = 0.0f;
+    f32 x = timer_procent(player->shoot_indicator_timer)*2*Pi32;
+    player->shoot_indicator = (cosf(x + Pi32) + 1.0f)/2.0f; 
+  }
   
-  // Flap
-  player->flap = cosf(GetTime()*18.0f)*0.075f;
+  // Wobble
+  if(is_wobbling) {
+    player->flap = 0.0f;
+    
+    f32 t = timer_procent(player->wobble_timer);
+    ease_out_quad(&t);
+    
+    f32 x = 2*Pi32*t;
+    player->wobble_scale = 20.0f;
+    player->wobble = ((cosf(x*5.0f + Pi32) + 1)/2);
+  }
+  
+  // Flaping
+  if(!is_wobbling && !is_shoot_indicator_active) {
+    player->flap = cosf(GetTime()*18.0f)*0.075f;
+  }
   
   // Turning
   if(move_dir.x == 0)   player->target_turn_angle = 0.0f;
@@ -1710,7 +1774,7 @@ void draw_triple_gun_turret(Entity* entity) {
 }
 
 
-void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset = 0.0f) {
+void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset, Vec4 color) {
   Game_State* gs = get_game_state();
   
   Vec2* top_wing = gs->butterfly_top_wing;
@@ -1730,15 +1794,15 @@ void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset = 0.0f) {
     Vec2 v2 = pos + vec2_rotate(b, rot)*scale;
     Vec2 v3 = pos + vec2_rotate(c, rot)*scale;
 
-    draw_triangle(v3, v2, v1, {1,1,1,0.5f});     
-    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+    draw_triangle(v3, v2, v1, vec4_fade_alpha(color, 0.5f));     
+    draw_triangle_outline(v3, v2, v1, color);
 
     // flipped on x
     v1 = pos + vec2_rotate({-a.x, a.y}, rot)*scale;
     v2 = pos + vec2_rotate({-b.x, b.y}, rot)*scale;
     v3 = pos + vec2_rotate({-c.x, c.y}, rot)*scale;
-    draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
-    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+    draw_triangle(v1, v2, v3, vec4_fade_alpha(color, 0.5f));     
+    draw_triangle_outline(v3, v2, v1, color);
   }
   
   
@@ -1751,15 +1815,15 @@ void draw_butterfly(Vec2 pos, f32 scale, f32 rot, f32 y_offset = 0.0f) {
     Vec2 v2 = pos + vec2_rotate(b, rot)*scale;
     Vec2 v3 = pos + vec2_rotate(c, rot)*scale;
 
-    draw_triangle(v3, v2, v1, {1,1,1,0.5f});     
-    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+    draw_triangle(v3, v2, v1, vec4_fade_alpha(color, 0.5f));     
+    draw_triangle_outline(v3, v2, v1, color);
 
     // flipped on x
     v1 = pos + vec2_rotate({-a.x, a.y}, rot)*scale;
     v2 = pos + vec2_rotate({-b.x, b.y}, rot)*scale;
     v3 = pos + vec2_rotate({-c.x, c.y}, rot)*scale;
-    draw_triangle(v1, v2, v3, {1,1,1,0.5f});     
-    draw_triangle_outline(v3, v2, v1, WHITE_VEC4);
+    draw_triangle(v1, v2, v3, vec4_fade_alpha(color, 0.5f));     
+    draw_triangle_outline(v3, v2, v1, color);
   }
 }
 
@@ -1776,7 +1840,13 @@ void draw_entities(void) {
         Vec2 pos = player->pos;
         Vec2 dim = vec2(2,2)*player->radius; 
         
-        draw_butterfly(pos, 5.0f*player->radius, player->turn_angle, player->flap);
+        f32 shoot_indicator_scale = player->shoot_indicator*10.0f;
+        
+        f32 wobble_scale = player->wobble*player->wobble_scale;
+        f32 scale = 5.0f*player->radius + wobble_scale + shoot_indicator_scale;
+        
+        Vec4 color = vec4_lerp(WHITE_VEC4, RED_VEC4, player->wobble);
+        draw_butterfly(pos, scale, player->turn_angle, player->flap, color);
         
         //draw_circle_outline(pos, entity->radius, RED_VEC4);
         
@@ -2085,7 +2155,7 @@ void do_menu_screen(void) {
   draw_text_centered(gs->big_font, "Butterfly", 100, WHITE_VEC4);
   draw_text_centered(gs->small_font, "Press  ENTER/X/A  to  start", WINDOW_HEIGHT - 30, WHITE_VEC4);
   
-  draw_butterfly(get_screen_center(), 100.0f, 0.0f);
+  draw_butterfly(get_screen_center(), 100.0f, 0.0f, 0.0f, WHITE_VEC4);
   EndDrawing();
 }
 

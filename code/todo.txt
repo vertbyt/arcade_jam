@@ -11,14 +11,10 @@ TODO:
   - maybe make this enemy have bullets that infect the chain circles making them
     deadly for the player to be in them or touch them.
 
-- player collider, laser bullet colider
-
 - sound:
   - player shoot, player hit, explosion, chain effects
   
 - polish:
- - butterfly turning, and stretching when shooting
- - butterfly leaves behind particles
  - explode butter fly on death
  - butterly bullets trial effect
    
