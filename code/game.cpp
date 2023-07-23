@@ -686,7 +686,7 @@ void update_player(Entity* entity) {
       gs->score += value;
       remove_score_dot(dot);
       
-      if(player->score_sound_delay_time > 0.1f) {
+      if(player->score_sound_delay_time > 0.075f) {
         PlaySound(gs->score_pickup_sound);    
         player->score_sound_delay_time = 0.0f;
       }
@@ -2351,10 +2351,18 @@ void draw_entities(void) {
         }        
         
         if(activator->for_tutorial_purposes) {
-          char* text = "Shoot to cause chain reaction";
-          Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
-          Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize};
-          draw_text(gs->small_font, text, tpos, WHITE_VEC4);
+          {
+            char* text = "Shoot to cause chain reaction";
+            Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
+            Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize*2.0f};
+            draw_text(gs->small_font, text, tpos, WHITE_VEC4);
+          };
+          {
+            char* text = "You can shoot it multiple times";
+            Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
+            Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize};
+            draw_text(gs->small_font, text, tpos, WHITE_VEC4);
+          };
         }
       }break;
     }
@@ -3010,7 +3018,8 @@ void init_game(void) {
   game_state->player_shoot_sound = sound_asset_load("player_shoot.wav");
   game_state->explosion_sound    = sound_asset_load("explosion.wav");
   game_state->laser_shot_sound   = sound_asset_load("laser_shot.wav");
-  game_state->score_pickup_sound = sound_asset_load("score_pickup.wav");
+  game_state->score_pickup_sound = sound_asset_load("score_pickup_recent.wav");
+  SetSoundVolume(game_state->score_pickup_sound, 0.45f);
   game_state->player_hit_sound   = sound_asset_load("player_hit.wav");
   
   game_state->small_font  = font_asset_load("roboto.ttf", 32);
