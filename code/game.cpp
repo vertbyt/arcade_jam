@@ -201,6 +201,8 @@ struct Chain_Activator : public Entity_Base {
   f32 orbital_radius;
   f32 orbital_global_rotation;
     
+  b32 for_tutorial_purposes;
+  
   struct {
     f32 rotation;
     f32 time;
@@ -320,8 +322,15 @@ enum Game_Screen {
   Game_Screen_Win,
 };
 
+struct High_Score {
+  s32 score;
+  s32 lives;
+};
+
 struct Game_State {
-  
+  // game controls
+  Timer show_game_controls_timer;
+      
   // game screen
   Game_Screen game_screen;
   b32 has_entered_game_screen;
@@ -357,6 +366,8 @@ struct Game_State {
   f32 level_duration;
   f32 level_time_passed;
   s32 score;
+  High_Score high_score;
+  b32 got_high_score;
   
   struct {
     Timer goon, laser_turret, triple_turret, activator, infector;
@@ -551,21 +562,6 @@ void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
 
 void remove_explosion(Explosion* e) { e->is_active = false; }
 
-
-void spawn_particle_explosion(Vec2 pos, s32 count, Vec2 velocity_range, Vec2 friction_range, Vec2 size_range, Vec2 life_range, Vec4 color) {
-  Loop(i, count) {
-    Particle* p = new_particle();
-    f32 rot = random_angle();
-    
-    p->pos        = pos;
-    p->vel        = vec2(rot)*vec2_lerp_x_to_y(velocity_range, random_f32());
-    p->friction   = vec2_lerp_x_to_y(friction_range, random_f32());
-    p->radius     = vec2_lerp_x_to_y(size_range, random_f32());
-    p->life_timer = timer_start(vec2_lerp_x_to_y(life_range, random_f32()));
-    p->rotation   = rot;
-    p->color      = color;
-  }
-}
 
 #define PARTICLE_TRAIL_VELOCITY_RANGE     {50, 100}
 #define PARTICLE_TRAIL_FRICTION_RANGE     {0.95, 0.99}
@@ -1184,6 +1180,11 @@ void update_chain_activator(Entity* entity) {
       
       activator->dir = vec2(dir_angle);
       
+      if(activator->for_tutorial_purposes) {
+        activator->pos = {WINDOW_WIDTH/2, -CHAIN_ACTIVATOR_START_RADIUS*5};
+        activator->dir = {0, 1};
+      }
+      
       activator->move_speed = CHAIN_ACTIVATOR_MOVE_SPEED;
       
       activator->start_radius = CHAIN_ACTIVATOR_START_RADIUS;
@@ -1397,7 +1398,6 @@ void update_infector(Entity* entity) {
       infector->wobble = t;
       
       if(timer_step(&infector->state_timer, delta_time)) {
-      
         f32 bullet_count = 6;
         f32 angle_step = (2*Pi32)/bullet_count;
         f32 angle = 0.0f;
@@ -2034,6 +2034,7 @@ void set_level_to_initial_state() {
   StopMusicStream(gs->songs[1]);
 
   gs->score = 0;
+  gs->got_high_score = false;
   
   gs->are_spawn_timers_init = false;  
   
@@ -2042,6 +2043,11 @@ void set_level_to_initial_state() {
   player->radius = PLAYER_RADIUS;
   player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
   entity_set_hit_points(player, PLAYER_HIT_POINTS);
+  
+  gs->show_game_controls_timer = timer_start(4.0f);
+
+  Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+  activator->for_tutorial_purposes = true;
 }
 
 void update_game(void) {
@@ -2055,23 +2061,14 @@ void update_game(void) {
   
   update_entities();  
   actually_remove_entities();
-
+  
+  update_score_dots();
   update_particles();
   update_projectiles();
-  
   update_explosions();
   update_chain_circles();
-  update_score_dots();
   
   count_active_game_objects();
-  
-  local_persist f32 trail_emit_time = 0.0f;
-  trail_emit_time -= delta_time;
-  if(IsMouseButtonDown(MOUSE_BUTTON_LEFT) && trail_emit_time < 0.0f) {
-    Vec2 mp = vec2(GetMouseX(), GetMouseY());
-    spawn_particle_trial(mp, {0, 1}, 4, WHITE_VEC4);
-    trail_emit_time = 0.01f;
-  }
   
   f64 end_time = GetTime();
   gs->update_time = end_time - start_time;
@@ -2336,8 +2333,8 @@ void draw_entities(void) {
         Chain_Activator* activator = (Chain_Activator*)entity;
         
         Vec2 dim = vec2(2, 2)*activator->radius;
-        Vec2 center_pos = activator->pos - dim*0.5f;
-        draw_quad(gs->chain_activator_texture, center_pos, dim, activator->rotation, activator->color);
+        Vec2 pos = activator->pos - dim*0.5f;
+        draw_quad(gs->chain_activator_texture, pos, dim, activator->rotation, activator->color);
         
         Vec2 orbital_dim = vec2(2,2)*activator->orbital_radius;
         s32 orbital_count = ArrayCount(activator->orbitals);
@@ -2352,6 +2349,13 @@ void draw_entities(void) {
           draw_quad(gs->chain_activator_texture, global_pos - orbital_dim*0.5f, orbital_dim, rot, activator->color);
           angle += angle_step;
         }        
+        
+        if(activator->for_tutorial_purposes) {
+          char* text = "Shoot to cause chain reaction";
+          Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
+          Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize};
+          draw_text(gs->small_font, text, tpos, WHITE_VEC4);
+        }
       }break;
     }
   }
@@ -2534,13 +2538,12 @@ void draw_game(void) {
   f64 start_time = GetTime();
   
   draw_entities();
-  
+
+  draw_score_dots();
   draw_particles();
   draw_projectiles();
   
-  draw_score_dots();
   draw_chain_circles();
-
   draw_explosions();
   draw_level_completion_bar();
   draw_score_and_life();
@@ -2642,9 +2645,62 @@ void do_game_screen(void) {
   update_audio();
   update_level();
   update_game();
-  
+
+  timer_step(&gs->show_game_controls_timer, GetFrameTime());
+  b32 show_game_controls = timer_is_active(gs->show_game_controls_timer);
+    
   BeginDrawing();
   draw_game();
+  
+  if(show_game_controls) {
+    f32 base_y = 300.0f;
+    f32 alpha = 1.0f - timer_procent(gs->show_game_controls_timer);
+    ease_out_quad(&alpha);
+    
+    f32 right_x = WINDOW_WIDTH/4;
+    char* right_lines[] = {
+      "Movement:",
+      " ",
+      "WASD",
+      "D-pad",
+      "Right stick",
+      "\0",
+    };
+    
+    Font font = gs->small_font;
+    
+    s32 i = 0;
+    f32 y = base_y;
+    while(right_lines[i][0] != '\0') {
+      Vector2 dim = MeasureTextEx(font, right_lines[i], font.baseSize, 0);
+      Vec2 pos = vec2(right_x - dim.x/2, y);
+      draw_text(font, right_lines[i], pos, vec4_fade_alpha(WHITE_VEC4, alpha));
+      y += font.baseSize;
+      i += 1;
+    }
+    
+    f32 left_x = WINDOW_WIDTH/2 + WINDOW_WIDTH/4;
+    char* left_lines[] = {
+      "Shooting:",
+      " ",
+      "Arrows",
+      "Buttons",
+      "Left Stick",
+      "\0"
+    };
+    
+    i = 0;
+    y = base_y;
+    while(left_lines[i][0] != '\0') {
+      Vector2 dim = MeasureTextEx(font, left_lines[i], font.baseSize, 0);
+      Vec2 pos = vec2(left_x - dim.x/2, y);
+      draw_text(font, left_lines[i], pos, vec4_fade_alpha(WHITE_VEC4, alpha));
+      y += font.baseSize;
+      i += 1;
+    }
+    
+  }
+  
   EndDrawing();
 }
 
@@ -2711,6 +2767,14 @@ void do_menu_screen(void) {
     
     y += gs->medium_font.baseSize + y_pad;
   }
+  
+  
+  char hs_text[255];
+  sprintf(hs_text, "High Score: %dx%d", gs->high_score.score, gs->high_score.lives);
+  
+  f32 hs_pad = 10.0f;
+  Vec2 hs_pos = {hs_pad, WINDOW_HEIGHT - gs->small_font.baseSize - hs_pad};
+  draw_text(gs->small_font, hs_text, hs_pos, WHITE_VEC4);
   
   f32 flap = cosf(GetTime()*8.0f)*0.065f;
   draw_butterfly(get_screen_center(), 200.0f, 0.0f, flap, WHITE_VEC4);
@@ -2829,6 +2893,7 @@ void do_pause_screen(void) {
 
 void do_death_screen(b32 should_update_game = true) {
   Game_State* gs = get_game_state();
+  Player* player = get_player();
   
   char* options[2] = {"Restart","Menu"};  
   gs->option_index = Wrap(gs->option_index + get_vertical_navigation_dir(), 0, ArrayCount(options) - 1);
@@ -2851,8 +2916,21 @@ void do_death_screen(b32 should_update_game = true) {
   draw_game();
   draw_quad({0, 0}, {WINDOW_WIDTH, WINDOW_HEIGHT}, {0.1f, 0.1f, 0.5f, 0.5f});
   
-  char text[255];
-  sprintf(text, "Score: %d", gs->score);
+  s32 score_value = gs->score*player->hit_points;
+  s32 hs_value = gs->high_score.score*gs->high_score.lives;
+
+  if(score_value > hs_value) {
+    gs->high_score = {gs->score, player->hit_points};
+    gs->got_high_score = true;
+  }
+  
+  char text[512];
+  if(gs->got_high_score) {
+    sprintf(text, "New High Score: %dx%d", gs->score, player->hit_points);
+  }else {
+    sprintf(text, "Score: %dx%d", gs->score, player->hit_points);
+  }
+  
   draw_text_centered(gs->big_font, text, 200, WHITE_VEC4);
   
   f32 y = 300;
@@ -2910,9 +2988,8 @@ void init_game(void) {
   Game_State* game_state = get_game_state();
   *game_state = {};
   
-  
   // game screen
-  game_state->game_screen = Game_Screen_Game;
+  game_state->game_screen = Game_Screen_Menu;
   
   // game object allocation
   game_state->entities      = allocator_alloc_array(allocator, Entity,       MAX_ENTITIES);
