@@ -19,13 +19,14 @@
 
 #define TITLE             "Arcade Jam"
 
-
-#define INPUT_DELAY_TIME  0.5f
+#define MAX_MASTER_VOLUME  12
+#define MASTER_VOLUME_STEP 1
 
 #define MAX_ENTITIES      256
 #define MAX_PROJECTILES   512
 #define MAX_CHAIN_CIRCLES 512
 #define MAX_SCORE_DOTS    512
+#define MAX_PARTICLES     512
 #define MAX_EXPLOSIONS    16
 
 
@@ -49,7 +50,7 @@ Vec4 WHITE_VEC4 = {1, 1, 1, 1};
 #define PLAYER_RADIUS         10.0f
 #define PLAYER_SHOOT_COOLDOWN (12*TARGET_DELTA_TIME)
 
-#define PLAYER_HIT_POINTS     1
+#define PLAYER_HIT_POINTS     10
 #define PLAYER_MAX_TURN_ANGLE (Pi32/8.0f)
 #define PLAYER_TURN_SPEED     1.75f
 

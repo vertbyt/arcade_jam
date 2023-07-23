@@ -64,6 +64,8 @@ Vec2 vec2_perp(Vec2 v) {
 Vec2 operator+(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
 void operator+=(Vec2 &a, Vec2 b) { a.x += b.x; a.y += b.y; }
 
+Vec2 operator-(Vec2 a) { return {-a.x, -a.y}; }
+
 Vec2 operator-(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
 void operator-=(Vec2 &a, Vec2 b) { a.x -= b.x; a.y -= b.y; }
 

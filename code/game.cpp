@@ -255,6 +255,8 @@ struct Projectile {
   
   b32 has_life_time;
   Timer life_timer;
+  
+  Timer emit_timer;
     
   Entity_Type from_type;
   Entity_Id   from_id;
@@ -296,6 +298,19 @@ struct Score_Dot {
   b32 is_active;
 };
 
+
+struct Particle {
+  Vec2 pos, vel;
+  f32 friction;
+  f32 radius;
+  f32 rotation;
+  Timer life_timer;
+  Vec4 color;
+  
+  b32 is_active;
+};
+
+
 enum Game_Screen {
   Game_Screen_Menu,
   Game_Screen_Credits,
@@ -305,16 +320,12 @@ enum Game_Screen {
   Game_Screen_Win,
 };
 
-#define MAX_MASTER_VOLUME  12
-#define MASTER_VOLUME_STEP 1
-
 struct Game_State {
   
   // game screen
   Game_Screen game_screen;
   b32 has_entered_game_screen;
   s32 option_index;
-  f32 screen_input_delay_time;
   s32 master_volume;
   
   // game objects
@@ -337,6 +348,10 @@ struct Game_State {
   Explosion* explosions;
   s32 next_explosion_index;
   s32 active_explosion_count;
+  
+  Particle* particles;
+  s32 next_particle_index;
+  s32 active_particles_count;
   
   // level state
   f32 level_duration;
@@ -424,6 +439,24 @@ void actually_remove_entities(void) {
     }
   }
 }
+
+
+Particle* new_particle() {
+  Game_State* gs = get_game_state();
+
+  Particle* p = &gs->particles[gs->next_particle_index];
+  
+  *p = {};
+  p->is_active = true;
+  
+  gs->next_particle_index += 1;
+  gs->next_particle_index %= MAX_PARTICLES;
+  
+  return p;
+}
+
+void remove_particle(Particle* p) { p->is_active = false; }
+
 
 Projectile* new_projectile() {
   Game_State* gs = get_game_state();
@@ -517,6 +550,42 @@ void spawn_explosion(Vec2 pos, f32 scale, f32 time) {
 
 void remove_explosion(Explosion* e) { e->is_active = false; }
 
+
+void spawn_particle_explosion(Vec2 pos, s32 count, Vec2 velocity_range, Vec2 friction_range, Vec2 size_range, Vec2 life_range, Vec4 color) {
+  Loop(i, count) {
+    Particle* p = new_particle();
+    f32 rot = random_angle();
+    
+    p->pos        = pos;
+    p->vel        = vec2(rot)*vec2_lerp_x_to_y(velocity_range, random_f32());
+    p->friction   = vec2_lerp_x_to_y(friction_range, random_f32());
+    p->radius     = vec2_lerp_x_to_y(size_range, random_f32());
+    p->life_timer = timer_start(vec2_lerp_x_to_y(life_range, random_f32()));
+    p->rotation   = rot;
+    p->color      = color;
+  }
+}
+
+#define PARTICLE_TRAIL_VELOCITY_RANGE     {50, 100}
+#define PARTICLE_TRAIL_FRICTION_RANGE     {0.95, 0.99}
+#define PARTICLE_TRAIL_RADIUS_RANGE       {1, 3}
+#define PARTICLE_TRAIL_LIFE_RANGE         {0.05f, 0.08f}
+#define PARTICLE_TRAIL_ANGLE_LEEWAY_RANGE {-(Pi32/4), (Pi32/4)}
+
+void spawn_particle_trial(Vec2 pos, Vec2 dir, s32 count, Vec4 color) {
+  Loop(i, count) {
+    Particle* p = new_particle();
+    f32 rot = vec2_angle(dir) + vec2_lerp_x_to_y(PARTICLE_TRAIL_ANGLE_LEEWAY_RANGE, random_f32());
+    
+    p->pos        = pos;
+    p->vel        = vec2(rot)*vec2_lerp_x_to_y(PARTICLE_TRAIL_VELOCITY_RANGE, random_f32());
+    p->friction   = vec2_lerp_x_to_y(PARTICLE_TRAIL_FRICTION_RANGE, random_f32());
+    p->radius     = vec2_lerp_x_to_y(PARTICLE_TRAIL_RADIUS_RANGE, random_f32());
+    p->life_timer = timer_start(vec2_lerp_x_to_y(PARTICLE_TRAIL_LIFE_RANGE, random_f32()));
+    p->rotation   = rot;
+    p->color      = color;
+  }
+}
 
 Player* get_player(void) {
   Game_State* gs = get_game_state();
@@ -702,7 +771,7 @@ void update_player(Entity* entity) {
     p->dir = shoot_dir;
     p->rotation = vec2_angle(shoot_dir);
     p->move_speed = 650;
-    
+    p->emit_timer = timer_start(0.0f);
     projectile_set_parent(p, (Entity*)player);
     
     timer_reset(&player->shoot_cooldown_timer);
@@ -1350,6 +1419,33 @@ void update_infector(Entity* entity) {
   }
 }
 
+void update_particles(void) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Loop(i, MAX_PARTICLES) {
+    Particle* p = &gs->particles[i];
+    if(!p->is_active) continue;
+    
+    p->vel *= p->friction;
+    p->pos += p->vel*delta_time;
+    
+    if(timer_step(&p->life_timer, delta_time)) remove_particle(p);
+  }
+}
+
+void draw_particles(void) {
+  Game_State* gs = get_game_state();
+  f32 delta_time = GetFrameTime();
+  
+  Loop(i, MAX_PARTICLES) {
+    Particle* p = &gs->particles[i];
+    if(!p->is_active) continue;
+    
+    Vec2 dim = vec2(2,2)*p->radius;
+    draw_quad(p->pos - dim*0.5f, dim, p->rotation, p->color);
+  }
+}
 
 void update_projectiles(void) {
   Game_State* gs = get_game_state();
@@ -1390,6 +1486,13 @@ void update_projectiles(void) {
       }
     }
         
+    if(p->from_type == Entity_Type_Player || p->from_type == Entity_Type_Infector) {
+      if(timer_step(&p->emit_timer, delta_time)) {
+        spawn_particle_trial(p->pos, -p->dir, 8, p->color);
+        timer_reset(&p->emit_timer);
+      }
+    }
+    
     Vec2 vel = p->dir*p->move_speed;
     Vec2 move_delta = vel*delta_time;
     p->pos += move_delta;
@@ -1934,6 +2037,8 @@ void set_level_to_initial_state() {
   player->radius = PLAYER_RADIUS;
   player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
   entity_set_hit_points(player, PLAYER_HIT_POINTS);
+  
+  new_entity(Entity_Type_Infector);
 }
 
 void update_game(void) {
@@ -1948,12 +2053,22 @@ void update_game(void) {
   update_entities();  
   actually_remove_entities();
 
+  update_particles();
   update_projectiles();
+  
   update_explosions();
   update_chain_circles();
   update_score_dots();
   
   count_active_game_objects();
+  
+  local_persist f32 trail_emit_time = 0.0f;
+  trail_emit_time -= delta_time;
+  if(IsMouseButtonDown(MOUSE_BUTTON_LEFT) && trail_emit_time < 0.0f) {
+    Vec2 mp = vec2(GetMouseX(), GetMouseY());
+    spawn_particle_trial(mp, {0, 1}, 4, WHITE_VEC4);
+    trail_emit_time = 0.01f;
+  }
   
   f64 end_time = GetTime();
   gs->update_time = end_time - start_time;
@@ -2417,7 +2532,9 @@ void draw_game(void) {
   
   draw_entities();
   
+  draw_particles();
   draw_projectiles();
+  
   draw_score_dots();
   draw_chain_circles();
 
@@ -2511,14 +2628,11 @@ void do_game_screen(void) {
   
   if(player->hit_points <= 0)  {
     change_game_screen(Game_Screen_Death);   
-    gs->screen_input_delay_time = INPUT_DELAY_TIME;
   }
   else if(check_escape_press()) {
-    gs->screen_input_delay_time = INPUT_DELAY_TIME;
     change_game_screen(Game_Screen_Paused);
   }
   else if(is_level_finished)  {
-    gs->screen_input_delay_time = INPUT_DELAY_TIME;
     change_game_screen(Game_Screen_Win);
   }
     
@@ -2618,7 +2732,6 @@ void do_credits_screen(void) {
     " ",
     "Snabisch",
     "https://opengameart.org/content/the-treasure-nes-version CC-BY 3.0",
-    " ",
     "\0",
   };
   
@@ -2804,6 +2917,7 @@ void init_game(void) {
   game_state->chain_circles = allocator_alloc_array(allocator, Chain_Circle, MAX_CHAIN_CIRCLES);
   game_state->explosions    = allocator_alloc_array(allocator, Explosion,    MAX_EXPLOSIONS);
   game_state->score_dots    = allocator_alloc_array(allocator, Score_Dot,    MAX_SCORE_DOTS);
+  game_state->particles     = allocator_alloc_array(allocator, Particle,     MAX_PARTICLES);
   
   // assets
   game_state->chain_circle_texture    = texture_asset_load("chain_circle.png");
@@ -2861,8 +2975,6 @@ void init_game(void) {
 void do_game_loop(void) {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
-  
-  if(gs->screen_input_delay_time > 0.0f) gs->screen_input_delay_time -= delta_time;
   
   switch(gs->game_screen) {
     case Game_Screen_Menu:    { do_menu_screen();    } break;
