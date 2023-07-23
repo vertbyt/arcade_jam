@@ -388,6 +388,7 @@ struct Game_State {
   Music songs[2];
   s32 song_index;
   Timer song_timer;
+  b32 is_level_music_done;
 
   // perf
   b32 show_debug_info;
@@ -1093,7 +1094,7 @@ void update_triple_gun_turret(Entity* entity) {
         f32 angle_to_player = vec2_angle(player->pos - turret->pos);
         if(Abs(angle_to_player - turret->rotation) > Pi32) rotation_dir = 1;
         
-        turret->rotation += rotation_dir*(Pi32/4);
+        turret->rotation = angle_to_player;//rotation_dir*(Pi32/4);
         entity_change_state(turret, Entity_State_Waiting);
       }
     }break;
@@ -1486,7 +1487,7 @@ void update_projectiles(void) {
       }
     }
         
-    if(p->from_type == Entity_Type_Player || p->from_type == Entity_Type_Infector) {
+    if(p->from_type == Entity_Type_Player) {
       if(timer_step(&p->emit_timer, delta_time)) {
         spawn_particle_trial(p->pos, -p->dir, 8, p->color);
         timer_reset(&p->emit_timer);
@@ -1802,6 +1803,8 @@ void update_audio() {
   Game_State* gs = get_game_state();
   f32 delta_time = GetFrameTime();
   
+  if(gs->is_level_music_done) return;
+  
   if(gs->song_index == -1) {
     gs->song_index = 0;
     gs->song_timer = timer_start(GetMusicTimeLength(gs->songs[gs->song_index]));
@@ -1813,13 +1816,13 @@ void update_audio() {
 
   if(timer_step(&gs->song_timer, delta_time)) {
     StopMusicStream(curr);
-    gs->song_index += 1;
-    if(gs->song_index < ArrayCount(gs->songs)) {
+    if(gs->song_index + 1 < ArrayCount(gs->songs)) {
+      gs->song_index += 1;
       curr = gs->songs[gs->song_index];
       gs->song_timer = timer_start(GetMusicTimeLength(curr));
       PlayMusicStream(curr);
     }else {
-      gs->song_index = -1;
+      gs->is_level_music_done = true;
       StopMusicStream(curr);
     }
   }
@@ -2020,10 +2023,12 @@ void set_level_to_initial_state() {
   Loop(i, MAX_EXPLOSIONS)    gs->explosions[i].is_active    = false;
   Loop(i, MAX_SCORE_DOTS)    gs->score_dots[i].is_active    = false;
   
-  gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]);
+  f32 level_silence_time = 5.0f;
+  gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]) + level_silence_time;
   gs->level_time_passed = 0.0f;
 
   gs->song_index = -1;
+  gs->is_level_music_done = false;
   
   StopMusicStream(gs->songs[0]);
   StopMusicStream(gs->songs[1]);
@@ -2037,8 +2042,6 @@ void set_level_to_initial_state() {
   player->radius = PLAYER_RADIUS;
   player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
   entity_set_hit_points(player, PLAYER_HIT_POINTS);
-  
-  new_entity(Entity_Type_Infector);
 }
 
 void update_game(void) {
@@ -2824,7 +2827,7 @@ void do_pause_screen(void) {
 
 }
 
-void do_death_screen(void) {
+void do_death_screen(b32 should_update_game = true) {
   Game_State* gs = get_game_state();
   
   char* options[2] = {"Restart","Menu"};  
@@ -2842,7 +2845,7 @@ void do_death_screen(void) {
     }
   }
 
-  update_game();
+  if(should_update_game) update_game();
   
   BeginDrawing();
   draw_game();
@@ -2871,7 +2874,7 @@ void do_death_screen(void) {
 }
 
 void do_win_screen(void) {
-  do_death_screen();
+  do_death_screen(false);
 }
 
 //

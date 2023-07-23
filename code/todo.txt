@@ -1,13 +1,6 @@
 
 TODO:
 
-- figure out how should the level "flow"!!!!
-  
-- polish:
- - maybe better sound effects
- - explode butter fly on death
- - butterly bullets trial effect
- 
 - create itch page
 - publish to itch
 
