@@ -2080,7 +2080,8 @@ void update_game(void) {
 void draw_debug_info(void)  {
   Game_State* gs = get_game_state();
   
-  if(IsKeyPressed(KEY_Q)) gs->show_debug_info = !gs->show_debug_info;
+  //if(IsKeyPressed(KEY_Q)) gs->show_debug_info = !gs->show_debug_info;
+  gs->show_debug_info = false;
   if(!gs->show_debug_info) return;
   
   Vec2 pos = {10, 10};
@@ -2807,6 +2808,9 @@ void do_credits_screen(void) {
     " ",
     "Snabisch",
     "https://opengameart.org/content/the-treasure-nes-version CC-BY 3.0",
+    " ",
+    " ",
+    "Made with Raylib",
     "\0",
   };
   
