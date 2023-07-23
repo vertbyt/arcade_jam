@@ -202,6 +202,7 @@ struct Chain_Activator : public Entity_Base {
   f32 orbital_global_rotation;
     
   b32 for_tutorial_purposes;
+  char* text_line;
   
   struct {
     f32 rotation;
@@ -330,7 +331,9 @@ struct High_Score {
 struct Game_State {
   // game controls
   Timer show_game_controls_timer;
-      
+  
+  s32 level_played_times;  
+    
   // game screen
   Game_Screen game_screen;
   b32 has_entered_game_screen;
@@ -1174,15 +1177,12 @@ void update_chain_activator(Entity* entity) {
   // FSM
   switch(activator->state) {
     case Entity_State_Initial: {
-      activator->pos = random_offscreen_pos(CHAIN_ACTIVATOR_START_RADIUS*4);
-      f32 angle_to_center = vec2_angle(get_screen_center() - activator->pos);
-      f32 dir_angle = angle_to_center + random_f32(-1, 1)*(Pi32/6);
-      
-      activator->dir = vec2(dir_angle);
-      
-      if(activator->for_tutorial_purposes) {
-        activator->pos = {WINDOW_WIDTH/2, -CHAIN_ACTIVATOR_START_RADIUS*5};
-        activator->dir = {0, 1};
+      if(!activator->for_tutorial_purposes) {
+        activator->pos = random_offscreen_pos(CHAIN_ACTIVATOR_START_RADIUS*4);
+        f32 angle_to_center = vec2_angle(get_screen_center() - activator->pos);
+        f32 dir_angle = angle_to_center + random_f32(-1, 1)*(Pi32/6);
+        
+        activator->dir = vec2(dir_angle);
       }
       
       activator->move_speed = CHAIN_ACTIVATOR_MOVE_SPEED;
@@ -1209,7 +1209,7 @@ void update_chain_activator(Entity* entity) {
     }break;
     case Entity_State_Offscreen: {
       if(entity_enter_state(activator)) {
-        activator->state_timer = timer_start(5.0f);
+        activator->state_timer = timer_start(50.0f);
       }
       
       activator->vel = activator->move_speed*activator->dir;
@@ -1849,7 +1849,7 @@ void update_level() {
   b32 allow_activator = false;
   b32 allow_infector = false;
 
-  if(level_completion > 0.975f) {
+  if(level_completion > 0.95f) {
     return;
   }
   else if(level_completion > 0.75f) {
@@ -1895,7 +1895,17 @@ void update_level() {
     lturret_time_range   = {12, 15};
     tturret_time_range   = {12, 15};
     activator_time_range = {12, 15};
-  }else {
+  }
+  else if(level_completion > 0.05f) {
+    allow_goons = true;
+    allow_activator = true;
+    
+    goon_time_range  = {3, 6};
+    goon_count_range = {2, 4};
+    
+    activator_time_range = {10, 12};
+  }
+  else if(gs->level_played_times > 1){
     allow_goons = true;
     allow_activator = true;
     
@@ -2006,11 +2016,9 @@ void update_level() {
   if(should_spawn_infector)  new_entity(Entity_Type_Infector);
 }
 
-void update_butterfly_wings(void) {
-  Game_State* gs = get_game_state();
-  f32 delta_time = GetFrameTime();
-  
-}
+char* chain_activator_line0 = "Shoot only once to activate";
+char* chain_activator_line1 = "Shoot multiple times";
+char* chain_activator_line2 = "Shoot to cause chain a reaction";
 
 void set_level_to_initial_state() {
   Game_State* gs = get_game_state();
@@ -2023,7 +2031,7 @@ void set_level_to_initial_state() {
   Loop(i, MAX_EXPLOSIONS)    gs->explosions[i].is_active    = false;
   Loop(i, MAX_SCORE_DOTS)    gs->score_dots[i].is_active    = false;
   
-  f32 level_silence_time = 5.0f;
+  f32 level_silence_time = 15.0f;
   gs->level_duration = GetMusicTimeLength(gs->songs[0]) + GetMusicTimeLength(gs->songs[1]) + level_silence_time;
   gs->level_time_passed = 0.0f;
 
@@ -2044,10 +2052,78 @@ void set_level_to_initial_state() {
   player->shoot_cooldown_timer = timer_start(PLAYER_SHOOT_COOLDOWN);
   entity_set_hit_points(player, PLAYER_HIT_POINTS);
   
-  gs->show_game_controls_timer = timer_start(4.0f);
-
-  Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
-  activator->for_tutorial_purposes = true;
+  if(gs->level_played_times == 0) {
+    gs->show_game_controls_timer = timer_start(5.0f);
+    
+    // Shoot once
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line0;
+      activator->pos = {WINDOW_WIDTH/2, -CHAIN_ACTIVATOR_START_RADIUS*5};
+      activator->dir = {0, 1};
+    };
+    
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line0;
+      activator->pos = {-CHAIN_ACTIVATOR_START_RADIUS*12, WINDOW_HEIGHT/2};
+      activator->dir = {1, 0};
+    };
+    
+    // Shoot multiple times
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line1;
+      activator->pos = {WINDOW_WIDTH + CHAIN_ACTIVATOR_START_RADIUS*22, WINDOW_HEIGHT/2};
+      activator->dir = {-1, 0};
+    };
+    
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line1;
+      activator->pos = {WINDOW_WIDTH/2, WINDOW_HEIGHT + CHAIN_ACTIVATOR_START_RADIUS*22};
+      activator->dir = {0, -1};
+    };
+    
+    // Shoot to cause a chain reaction
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line2;
+      activator->pos = {WINDOW_WIDTH/2, -CHAIN_ACTIVATOR_START_RADIUS*35};
+      activator->dir = {0, 1};
+    };
+    
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line2;
+      activator->pos = {-CHAIN_ACTIVATOR_START_RADIUS*40, WINDOW_HEIGHT/2};
+      activator->dir = {1, 0};
+    };
+    
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line2;
+      activator->pos = {WINDOW_WIDTH + CHAIN_ACTIVATOR_START_RADIUS*40, WINDOW_HEIGHT/2};
+      activator->dir = {-1, 0};
+    };
+    
+    {
+      Chain_Activator* activator = (Chain_Activator*)new_entity(Entity_Type_Chain_Activator);
+      activator->for_tutorial_purposes = true;
+      activator->text_line = chain_activator_line2;
+      activator->pos = {WINDOW_WIDTH/2, WINDOW_HEIGHT + CHAIN_ACTIVATOR_START_RADIUS*35};
+      activator->dir = {0, -1};
+    };
+  }
+  
+  gs->level_played_times += 1;
 }
 
 void update_game(void) {
@@ -2057,7 +2133,6 @@ void update_game(void) {
   f64 start_time = GetTime();
   
   update_explosion_polygon();
-  update_butterfly_wings();
   
   update_entities();  
   actually_remove_entities();
@@ -2080,8 +2155,8 @@ void update_game(void) {
 void draw_debug_info(void)  {
   Game_State* gs = get_game_state();
   
-  //if(IsKeyPressed(KEY_Q)) gs->show_debug_info = !gs->show_debug_info;
-  gs->show_debug_info = false;
+  if(IsKeyPressed(KEY_Q)) gs->show_debug_info = !gs->show_debug_info;
+  //gs->show_debug_info = false;
   if(!gs->show_debug_info) return;
   
   Vec2 pos = {10, 10};
@@ -2352,18 +2427,10 @@ void draw_entities(void) {
         }        
         
         if(activator->for_tutorial_purposes) {
-          {
-            char* text = "Shoot to cause chain reaction";
-            Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
-            Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize*2.0f};
-            draw_text(gs->small_font, text, tpos, WHITE_VEC4);
-          };
-          {
-            char* text = "You can shoot it multiple times";
-            Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
-            Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize};
-            draw_text(gs->small_font, text, tpos, WHITE_VEC4);
-          };
+          char* text = activator->text_line;
+          Vector2 tdim = MeasureTextEx(gs->small_font, text, gs->small_font.baseSize, 0);
+          Vec2 tpos = {activator->pos.x - tdim.x/2, pos.y - dim.height/2 - gs->small_font.baseSize};
+          draw_text(gs->small_font, text, tpos, WHITE_VEC4);
         }
       }break;
     }
@@ -2903,7 +2970,7 @@ void do_pause_screen(void) {
 
 }
 
-void do_death_screen(b32 should_update_game = true) {
+void do_death_screen(b32 should_update_game = true, char* bottom_text = "Death") {
   Game_State* gs = get_game_state();
   Player* player = get_player();
   
@@ -2960,11 +3027,13 @@ void do_death_screen(b32 should_update_game = true) {
     draw_text_centered(gs->medium_font, options[i], y, color);
     y += gs->medium_font.baseSize + y_pad;
   }
+  
+  draw_text_centered(gs->medium_font, bottom_text, 500, WHITE_VEC4);
   EndDrawing();
 }
 
 void do_win_screen(void) {
-  do_death_screen(false);
+  do_death_screen(false, "Level Complete");
 }
 
 //
@@ -3002,6 +3071,7 @@ void init_game(void) {
   
   // game screen
   game_state->game_screen = Game_Screen_Menu;
+  game_state->level_played_times = 0;
   
   // game object allocation
   game_state->entities      = allocator_alloc_array(allocator, Entity,       MAX_ENTITIES);
@@ -3062,7 +3132,7 @@ void init_game(void) {
   register_draw_dim(WINDOW_WIDTH, WINDOW_HEIGHT);
   
   // inital level state
-  set_level_to_initial_state();
+  //set_level_to_initial_state();
 }
 
 void do_game_loop(void) {
